@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}라이선스 · {{ cluster.name }}{% endblock %}
+{% block content %}
+
+{% include "_edit_tabs.html" %}
+
+<form method="post" action="/cluster/{{ cluster.id }}/edit/license" class="bigform">
+  <section>
+    <h2>라이선스</h2>
+    <p class="hint">
+      증설할 때마다 행을 추가하세요. 만료 상태는 종료일에서 자동 계산되므로 따로 입력하지 않습니다.
+      유형을 비우면 그 행은 저장되지 않습니다.
+    </p>
+
+    <table class="grid tight">
+      <thead>
+        <tr>
+          <th style="width:16%">유형</th>
+          <th style="width:10%" class="num">기간(개월)</th>
+          <th style="width:14%">시작일</th>
+          <th style="width:14%">종료일</th>
+          <th style="width:11%" class="num">용량(TB)</th>
+          <th style="width:14%">계약번호</th>
+          <th style="width:18%">사유</th>
+          <th style="width:3%"></th>
+        </tr>
+      </thead>
+      <tbody id="licbody">
+        {% for l in licenses %}
+        <tr>
+          <td><input type="text" name="lic_type" value="{{ l.license_type }}"></td>
+          <td><input type="number" name="lic_months" class="num" value="{{ l.term_months or '' }}"></td>
+          <td><input type="date" name="lic_start" value="{{ l.start_date or '' }}"></td>
+          <td><input type="date" name="lic_end" value="{{ l.end_date or '' }}"></td>
+          <td><input type="number" step="0.01" name="lic_capacity" class="num" value="{{ l.capacity_tb or '' }}"></td>
+          <td><input type="text" name="lic_contract" value="{{ l.contract_no or '' }}"></td>
+          <td><input type="text" name="lic_purpose" value="{{ l.purpose or '' }}"></td>
+          <td><button type="button" class="btn-del" title="행 삭제">&times;</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="button" class="btn-sm" id="lic-add">+ 행 추가</button>
+
+    {% if licenses %}
+    <p class="hint">
+      현재 상태:
+      {% for l in licenses %}
+        <span class="{% if l.license_status in ('EXPIRED','EXPIRING') %}warn{% else %}dim{% endif %}">
+          {{ l.license_type }} {{ l.license_status or 'UNKNOWN' }}{% if l.days_left is not none %} (D{{ '%+d' % l.days_left }}){% endif %}
+        </span>{% if not loop.last %} · {% endif %}
+      {% endfor %}
+    </p>
+    {% endif %}
+  </section>
+
+  <div class="formbar">
+    <label class="byline">작성자<input type="text" name="updated_by" placeholder="이름"></label>
+    <button type="submit">저장</button>
+    <a class="cancel" href="/cluster/{{ cluster.id }}">취소</a>
+  </div>
+</form>
+
+<template id="tpl-lic">
+  <tr>
+    <td><input type="text" name="lic_type" placeholder="예: U100"></td>
+    <td><input type="number" name="lic_months" class="num" placeholder="60"></td>
+    <td><input type="date" name="lic_start"></td>
+    <td><input type="date" name="lic_end"></td>
+    <td><input type="number" step="0.01" name="lic_capacity" class="num"></td>
+    <td><input type="text" name="lic_contract" placeholder="LS-001645"></td>
+    <td><input type="text" name="lic_purpose"></td>
+    <td><button type="button" class="btn-del" title="행 삭제">&times;</button></td>
+  </tr>
+</template>
+
+<script>
+(function () {
+  const body = document.getElementById('licbody');
+  document.getElementById('lic-add').addEventListener('click', () => {
+    body.appendChild(document.getElementById('tpl-lic').content.cloneNode(true));
+  });
+  body.addEventListener('click', e => {
+    if (e.target.classList.contains('btn-del')) e.target.closest('tr').remove();
+  });
+  if (!body.children.length) document.getElementById('lic-add').click();
+})();
+</script>
+
+{% endblock %}

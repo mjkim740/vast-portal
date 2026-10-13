@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal-api
+  namespace: vast-portal
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: portal-api
+  template:
+    metadata:
+      labels:
+        app: portal-api
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: portal-api
+      containers:
+        - name: api
+          image: 10.20.15.121:5000/vast-portal:v11   # ← 빌드할 때마다 태그를 올린다
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: DB_HOST
+              value: mariadb-0.mariadb.vast-portal.svc.cluster.local
+            - name: DB_NAME
+              value: vast_portal
+            - name: DB_USER
+              valueFrom: { secretKeyRef: { name: mariadb-secret, key: username } }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: mariadb-secret, key: password } }
+            - name: TZ
+              value: Asia/Seoul
+            # Confluence 발행. Secret 이 없으면 발행 버튼만 비활성되고
+            # 미리보기/소스 복사는 그대로 동작한다(optional: true).
+            - name: CONFLUENCE_BASE_URL
+              value: https://cpf-ds.atlassian.net
+            - name: CONFLUENCE_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: confluence-secret
+                  key: email
+                  optional: true
+            - name: CONFLUENCE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: confluence-secret
+                  key: token
+                  optional: true
+            # 발행된 페이지가 붙을 부모 페이지 ID. 비우면 스페이스 최상단.
+            - name: CONFLUENCE_PARENT_ID
+              value: "6160390"
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 192Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal-api
+  namespace: vast-portal
+spec:
+  # NodePort 로 둔 이유
+  #   ingress 는 host(vast-portal.ds.local)로만 매칭하므로, 이름이 풀리지 않는
+  #   PC 나 서버에서는 접속할 수 없다. IP:포트 로 들어올 문을 하나 더 둔다.
+  #   NodePort 는 ClusterIP 기능을 함께 가지므로 ingress 경로는 그대로 동작한다.
+  #
+  #   externalTrafficPolicy 를 지정하지 않아 기본값 Cluster 다. 파드가 없는
+  #   노드로 들어와도 내부에서 전달되므로 노드 IP 아무거나 써도 된다.
+  #   (ingress 쪽 NodePort 는 Local 이라 파드 없는 노드는 연결을 거부한다.)
+  type: NodePort
+  selector:
+    app: portal-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      nodePort: 31090   # 31080/31443/31254=ingress, 30080=java-web-service 사용 중
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: portal
+  namespace: vast-portal
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 8m
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: vast-portal.ds.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: portal-api
+                port:
+                  number: 80

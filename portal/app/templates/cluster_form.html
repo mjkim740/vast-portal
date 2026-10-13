@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+{% block title %}{{ '클러스터 등록' if mode == 'new' else '클러스터 수정' }}{% endblock %}
+{% block content %}
+
+{% if mode == 'edit' %}
+  {% include "_edit_tabs.html" %}
+{% else %}
+  <div class="crumb"><a href="/">클러스터</a> / 등록</div>
+  <h1>클러스터 등록</h1>
+  <p class="lede">기본 정보와 장비를 먼저 저장하면, 네트워크·라이선스·펌웨어·용량 탭이 열립니다.</p>
+{% endif %}
+
+<form method="post" action="/cluster/save" class="bigform">
+  {% if mode == 'edit' %}<input type="hidden" name="cluster_id" value="{{ cluster.id }}">{% endif %}
+
+  <!-- ─────────────────────────────────────────── 고객사 / 식별 -->
+  <section>
+    <h2>고객사 · 식별</h2>
+    <div class="fields">
+      <label class="f2">고객사
+        <select name="customer_id" id="customer_id">
+          <option value="">— 선택 —</option>
+          {% for cu in customers %}
+            <option value="{{ cu.id }}"
+              {% if cluster and cluster.customer_id == cu.id %}selected{% endif %}>{{ cu.name }}</option>
+          {% endfor %}
+          <option value="__new__">+ 새 고객사 입력</option>
+        </select>
+      </label>
+      <label class="f2 hidden" id="new_customer_wrap">새 고객사명
+        <input type="text" name="new_customer_name" id="new_customer_name" placeholder="예: LGCNS">
+      </label>
+
+      <label class="f2">Cluster Name <span class="req">필수</span>
+        <input type="text" name="name" required value="{{ cluster.name if cluster else '' }}"
+               placeholder="예: AILAB-NAS">
+      </label>
+      <label class="f2">PSNT <span class="hint-inline">클러스터 식별 기준</span>
+        <input type="text" name="psnt" value="{{ cluster.psnt if cluster and cluster.psnt else '' }}"
+               placeholder="예: VA24442801">
+      </label>
+
+      <label class="f2">용도
+        <input type="text" name="purpose" value="{{ cluster.purpose if cluster and cluster.purpose else '' }}"
+               placeholder="예: SLM, 반도체 EDA 설계">
+      </label>
+      <label class="f2">설치 장소
+        <input type="text" name="site" value="{{ cluster.site if cluster and cluster.site else '' }}">
+      </label>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────────────── 장비 구성 -->
+  <section>
+    <h2>장비 구성</h2>
+
+    <div class="typepick">
+      <span class="typepick-label">구성 방식</span>
+      <label class="radio">
+        <input type="radio" name="model_type" value="CD"
+               {% if not cluster or cluster.model_type == 'CD' %}checked{% endif %}>
+        <span>C + D <em>CBox · DBox 분리형</em></span>
+      </label>
+      <label class="radio">
+        <input type="radio" name="model_type" value="E"
+               {% if cluster and cluster.model_type == 'E' %}checked{% endif %}>
+        <span>E <em>단일형 (EBox)</em></span>
+      </label>
+    </div>
+
+    <p class="hint">
+      모델을 고르고 수량을 입력하세요. 목록에 없으면 <b>기타</b>를 고르면 직접 입력란이 나타납니다.
+      Cluster size(<code>3*1</code>, <code>Ebox 12</code>)는 수량에서 자동 계산되므로 따로 입력하지 않습니다.
+    </p>
+
+    <div id="hw-groups">
+      {% for kind in ['C', 'D', 'E', 'S'] %}
+      <div class="hwgroup" data-kind="{{ kind }}">
+        <div class="hwgroup-head">
+          <h3>{{ kind_label[kind] }}</h3>
+          <button type="button" class="btn-sm" data-sort="{{ kind }}">이름순 정렬</button>
+          <button type="button" class="btn-sm" data-add="{{ kind }}">+ 행 추가</button>
+        </div>
+        <table class="grid tight hwtable">
+          <thead>
+            <tr>
+              <th style="width:40%">모델</th>
+              <th style="width:22%">직접 입력</th>
+              <th style="width:14%" class="num">수량</th>
+              <th style="width:18%">용량</th>
+              <th style="width:6%"></th>
+            </tr>
+          </thead>
+          <tbody data-body="{{ kind }}">
+            {% for h in hardware if h.kind == kind %}
+            <tr>
+              <td>
+                <select name="hw_model_id" class="hw-model">
+                  <option value="">— 선택 —</option>
+                  {% for m in models if m.kind == kind %}
+                    <option value="{{ m.id }}" {% if h.model_id == m.id %}selected{% endif %}>
+                      {{ m.name }}{% if m.vendor %} ({{ m.vendor }}){% endif %}</option>
+                  {% endfor %}
+                  <option value="__other__" {% if not h.model_id %}selected{% endif %}>기타 — 직접 입력</option>
+                </select>
+                <input type="hidden" name="hw_kind" value="{{ kind }}">
+              </td>
+              <td><input type="text" name="hw_model_etc" class="hw-etc"
+                         value="{{ h.model_name if not h.model_id else '' }}"
+                         placeholder="모델명" {% if h.model_id %}disabled{% endif %}></td>
+              <td><input type="number" name="hw_quantity" class="num" min="1" value="{{ h.quantity }}"></td>
+              <td><input type="text" name="hw_capacity"
+                         value="{{ h.capacity_note or '' }}" placeholder="예: 338TB"></td>
+              <td><button type="button" class="btn-del" title="행 삭제">&times;</button></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="hwempty">행이 없습니다.</p>
+      </div>
+      {% endfor %}
+    </div>
+
+    <p class="calc">계산된 Cluster size: <b id="size-preview">—</b></p>
+  </section>
+
+  <!-- ─────────────────────────────────────────── 구성 정보 -->
+  <section>
+    <h2>구성 정보</h2>
+    <div class="fields">
+      <label class="f2">SW Release
+        <input type="text" name="cur_release"
+               value="{{ cluster.cur_release if cluster and cluster.cur_release else '' }}"
+               placeholder="예: 5.3.5-sp5">
+      </label>
+      <label>Service NiC
+        <select name="service_nic">
+          <option value="">—</option>
+          {% for v in ['EXTERNAL','INTERNAL','MIXED'] %}
+            <option value="{{ v }}" {% if cluster and cluster.service_nic == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>MGMT Type
+        <select name="mgmt_type">
+          <option value="">—</option>
+          {% for v in ['OUTBAND','INBAND'] %}
+            <option value="{{ v }}" {% if cluster and cluster.mgmt_type == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>IPMI Type
+        <select name="ipmi_type">
+          <option value="">—</option>
+          {% for v in ['OUTBAND','INBAND','B2B'] %}
+            <option value="{{ v }}" {% if cluster and cluster.ipmi_type == v %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <div class="fields">
+      <fieldset class="f2">
+        <legend>Protocol</legend>
+        <div class="checks">
+          {% for p in protocol_options %}
+          <label class="check"><input type="checkbox" name="protocol" value="{{ p }}"
+            {% if p in protocols %}checked{% endif %}> {{ p }}</label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      <fieldset class="f2">
+        <legend>Service type</legend>
+        <div class="checks">
+          {% for s in service_type_options %}
+          <label class="check"><input type="checkbox" name="service_type" value="{{ s }}"
+            {% if s in service_types %}checked{% endif %}> {{ s }}</label>
+          {% endfor %}
+        </div>
+      </fieldset>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────────────── 계약 / 상태 -->
+  <section>
+    <h2>계약 · 상태</h2>
+    <div class="fields">
+      <label>보장 DRR
+        <input type="number" step="0.001" name="guaranteed_drr"
+               value="{{ cluster.guaranteed_drr if cluster and cluster.guaranteed_drr else '' }}"
+               placeholder="예: 2.0">
+      </label>
+      <label>설치일
+        <input type="date" name="install_date"
+               value="{{ cluster.install_date if cluster and cluster.install_date else '' }}">
+      </label>
+      <label>상태
+        <select name="status">
+          {% for v in ['PROD','POC','DEMO','TEMP','PLANNED','DECOMM'] %}
+            <option value="{{ v }}"
+              {% if (cluster and cluster.status == v) or (not cluster and v == 'PROD') %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>지원 주체
+        <select name="support_status">
+          {% for v in ['DIRECT','PARTNER','NONE'] %}
+            <option value="{{ v }}"
+              {% if (cluster and cluster.support_status == v) or (not cluster and v == 'DIRECT') %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="f4">추가 정보
+        <textarea name="remark" rows="2">{{ cluster.remark if cluster and cluster.remark else '' }}</textarea>
+      </label>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────────────── 발행 대상 -->
+  <section>
+    <h2>Confluence 발행 대상</h2>
+    <div class="fields">
+      <label>Space Key
+        <input type="text" name="confluence_space"
+               value="{{ cluster.confluence_space if cluster and cluster.confluence_space else 'CPFDS' }}">
+      </label>
+      <label class="f2">Page ID <span class="hint-inline">비우면 첫 발행 시 새로 만듭니다</span>
+        <input type="text" name="confluence_page_id"
+               value="{{ cluster.confluence_page_id if cluster and cluster.confluence_page_id else '' }}"
+               placeholder="예: 308019202">
+      </label>
+    </div>
+  </section>
+
+  <div class="formbar">
+    <label class="byline">작성자
+      <input type="text" name="updated_by" placeholder="이름">
+    </label>
+    <button type="submit">저장</button>
+    <a class="cancel" href="{% if mode == 'edit' %}/cluster/{{ cluster.id }}{% else %}/{% endif %}">취소</a>
+  </div>
+</form>
+
+<!-- 장비 행 템플릿. kind 별 모델 목록을 각각 담아둔다. -->
+{% for kind in ['C','D','E','S'] %}
+<template id="tpl-{{ kind }}">
+  <tr>
+    <td>
+      <select name="hw_model_id" class="hw-model">
+        <option value="">— 선택 —</option>
+        {% for m in models if m.kind == kind %}
+          <option value="{{ m.id }}">{{ m.name }}{% if m.vendor %} ({{ m.vendor }}){% endif %}</option>
+        {% endfor %}
+        <option value="__other__">기타 — 직접 입력</option>
+      </select>
+      <input type="hidden" name="hw_kind" value="{{ kind }}">
+    </td>
+    <td><input type="text" name="hw_model_etc" class="hw-etc" placeholder="모델명" disabled></td>
+    <td><input type="number" name="hw_quantity" class="num" min="1" value="1"></td>
+    <td><input type="text" name="hw_capacity" placeholder="예: 338TB"></td>
+    <td><button type="button" class="btn-del" title="행 삭제">&times;</button></td>
+  </tr>
+</template>
+{% endfor %}
+
+<script>
+(function () {
+  const groups = document.getElementById('hw-groups');
+
+  // 구성 방식(C+D / E)에 따라 보일 그룹을 정한다. 스위치는 항상 보인다.
+  function applyModelType() {
+    const type = document.querySelector('input[name=model_type]:checked').value;
+    const visible = type === 'CD' ? ['C', 'D', 'S'] : ['E', 'S'];
+    groups.querySelectorAll('.hwgroup').forEach(g => {
+      g.classList.toggle('hidden', !visible.includes(g.dataset.kind));
+    });
+    updateSize();
+  }
+
+  // 기타를 고르면 직접 입력란을 연다.
+  // disabled 로 두면 폼 전송에서 빠지므로, 값 위치가 어긋나지 않도록
+  // 전송 직전에 모두 활성화한다(아래 submit 핸들러).
+  function syncEtc(sel) {
+    const etc = sel.closest('tr').querySelector('.hw-etc');
+    const other = sel.value === '__other__';
+    etc.disabled = !other;
+    etc.required = other;
+    if (!other) etc.value = '';
+    else etc.focus();
+  }
+
+  function rowCount(kind) {
+    return groups.querySelector(`tbody[data-body="${kind}"]`).children.length;
+  }
+
+  function updateEmpty() {
+    groups.querySelectorAll('.hwgroup').forEach(g => {
+      const n = rowCount(g.dataset.kind);
+      g.querySelector('.hwempty').style.display = n ? 'none' : '';
+      g.querySelector('.hwtable').style.display = n ? '' : 'none';
+    });
+  }
+
+  // Cluster size 미리보기. 서버의 v_cluster_size 뷰와 같은 규칙.
+  function updateSize() {
+    const type = document.querySelector('input[name=model_type]:checked').value;
+    const sum = kind => Array.from(
+      groups.querySelectorAll(`tbody[data-body="${kind}"] input[name=hw_quantity]`)
+    ).reduce((a, i) => a + (parseInt(i.value, 10) || 0), 0);
+
+    document.getElementById('size-preview').textContent =
+      type === 'CD' ? `${sum('C')}*${sum('D')}` : `Ebox ${sum('E')}`;
+  }
+
+  function addRow(kind) {
+    const tpl = document.getElementById('tpl-' + kind);
+    groups.querySelector(`tbody[data-body="${kind}"]`)
+          .appendChild(tpl.content.cloneNode(true));
+    updateEmpty();
+    updateSize();
+  }
+
+  /* 모델명 기준으로 행을 정렬한다.
+
+     드롭다운에서 고른 행은 보이는 모델명으로, '기타' 로 직접 적은 행은
+     그 입력값으로 비교한다. 모델을 아직 안 고른 빈 행은 맨 뒤로 보낸다.
+
+     입력 중에 자동으로 정렬하지 않는다 — 타이핑하는 사이에 행이 움직이면
+     어디를 적고 있었는지 놓친다. 버튼을 누를 때만 정렬한다.
+     저장은 화면 순서대로 sort_order 가 매겨지므로 그대로 유지된다. */
+  function sortRows(kind) {
+    const body = groups.querySelector(`tbody[data-body="${kind}"]`);
+    const rows = Array.from(body.rows);
+    if (rows.length < 2) return;
+
+    const key = tr => {
+      const sel = tr.querySelector('.hw-model');
+      if (!sel || !sel.value) return '';                       // 미선택 → 맨 뒤
+      if (sel.value === '__other__')
+        return (tr.querySelector('.hw-etc')?.value || '').trim();
+      return (sel.options[sel.selectedIndex]?.text || '').trim();
+    };
+    rows.sort((a, b) => {
+      const ka = key(a), kb = key(b);
+      if (!ka !== !kb) return ka ? -1 : 1;
+      return ka.localeCompare(kb, 'ko', { numeric: true, sensitivity: 'base' });
+    });
+    rows.forEach(tr => body.appendChild(tr));
+  }
+
+  groups.addEventListener('click', e => {
+    if (e.target.dataset.add)  { addRow(e.target.dataset.add); }
+    if (e.target.dataset.sort) { sortRows(e.target.dataset.sort); }
+    if (e.target.classList.contains('btn-del')) {
+      e.target.closest('tr').remove();
+      updateEmpty();
+      updateSize();
+    }
+  });
+
+  groups.addEventListener('change', e => {
+    if (e.target.classList.contains('hw-model')) syncEtc(e.target);
+    if (e.target.name === 'hw_quantity') updateSize();
+  });
+  groups.addEventListener('input', e => {
+    if (e.target.name === 'hw_quantity') updateSize();
+  });
+
+  document.querySelectorAll('input[name=model_type]')
+          .forEach(r => r.addEventListener('change', applyModelType));
+
+  // 고객사: '새 고객사 입력' 선택 시 입력란을 연다.
+  const csel = document.getElementById('customer_id');
+  const cwrap = document.getElementById('new_customer_wrap');
+  const cinput = document.getElementById('new_customer_name');
+  function syncCustomer() {
+    const isNew = csel.value === '__new__';
+    cwrap.classList.toggle('hidden', !isNew);
+    cinput.required = isNew;
+    if (isNew) cinput.focus(); else cinput.value = '';
+  }
+  csel.addEventListener('change', syncCustomer);
+
+  // 전송 직전: 숨겨진 그룹의 행을 제거하고, disabled 입력을 되살린다.
+  // disabled 인 채로 보내면 hw_* 배열의 길이가 어긋나 값이 밀린다.
+  document.querySelector('.bigform').addEventListener('submit', () => {
+    groups.querySelectorAll('.hwgroup.hidden tbody tr').forEach(tr => tr.remove());
+    groups.querySelectorAll('.hw-etc').forEach(i => { i.disabled = false; });
+    if (csel.value === '__new__') csel.value = '';
+  });
+
+  applyModelType();
+  updateEmpty();
+  syncCustomer();
+})();
+</script>
+
+{% endblock %}

@@ -1,0 +1,41 @@
+<table class="grid">
+  <thead>
+    <tr>
+      <th>고객사</th>
+      <th>클러스터</th>
+      <th>PSNT</th>
+      <th>구성</th>
+      <th>장비</th>
+      <th>Release</th>
+      <th class="num">Usable</th>
+      <th class="num">사용률</th>
+      <th class="num">DRR</th>
+      <th>갱신</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for c in clusters %}
+    <tr onclick="location.href='/cluster/{{ c.cluster_id }}'">
+      <td>{{ c.customer_name }}</td>
+      <td>
+        {{ c.cluster_name or '—' }}
+        {% if c.status != 'PROD' %}<span class="tag">{{ c.status }}</span>{% endif %}
+      </td>
+      <td class="mono dim">{{ c.psnt or '—' }}</td>
+      <td class="mono">{{ c.cluster_size or '—' }}</td>
+      <td class="mono dim">{{ c.cluster_detail or '—' }}</td>
+      <td class="mono">{{ c.vast_sw_release or '—' }}</td>
+      <td class="num mono">{{ c.usable_total_tb or '—' }}</td>
+      <td class="num mono">{% if c.used_pct is not none %}{{ c.used_pct }}%{% else %}—{% endif %}</td>
+      <td class="num mono {% if c.drr_status == 'BELOW' %}warn{% endif %}">{{ c.drr or '—' }}</td>
+      <td class="num {% if c.days_since_update and c.days_since_update > 180 %}warn{% else %}dim{% endif %}">
+        {% if c.last_update %}{{ c.days_since_update }}일 전{% else %}없음{% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="10" class="empty">
+      등록된 클러스터가 없습니다. <a href="/cluster/new">첫 클러스터를 등록</a>하세요.
+    </td></tr>
+  {% endfor %}
+  </tbody>
+</table>

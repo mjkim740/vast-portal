@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}용량 · {{ cluster.name }}{% endblock %}
+{% block content %}
+
+{% include "_edit_tabs.html" %}
+
+<form method="post" action="/cluster/{{ cluster.id }}/edit/capacity" class="bigform">
+  <section>
+    <h2>측정값 등록</h2>
+    <p class="hint">
+      측정일마다 쌓입니다. 같은 날 다시 저장하면 덮어씁니다.
+      System 사용분은 <code>Total − Used − Free</code>로 자동 계산되므로 입력란이 없습니다.
+    </p>
+
+    <div class="fields">
+      <label>측정일 <span class="req">필수</span>
+        <input type="date" name="measured_at" required>
+      </label>
+      <label class="f2">측정 시점 Release
+        <input type="text" name="release_at_time" class="mono" value="{{ last_release }}">
+      </label>
+      <label>DRR
+        <input type="number" step="0.001" name="drr" placeholder="1.9">
+      </label>
+    </div>
+
+    <div class="fields">
+      <fieldset class="f2">
+        <legend>Usable (TB)</legend>
+        <div class="trio">
+          <label>Total<input type="number" step="0.001" name="usable_total_tb" class="num" id="ut"></label>
+          <label>Used<input type="number" step="0.001" name="usable_used_tb" class="num" id="uu"></label>
+          <label>Free<input type="number" step="0.001" name="usable_free_tb" class="num" id="uf"></label>
+        </div>
+        <p class="calc">System = <b id="usys">—</b></p>
+      </fieldset>
+
+      <fieldset class="f2">
+        <legend>Logical (TB)</legend>
+        <div class="trio">
+          <label>Total<input type="number" step="0.001" name="logical_total_tb" class="num" id="lt"></label>
+          <label>Used<input type="number" step="0.001" name="logical_used_tb" class="num" id="lu"></label>
+          <label>Free<input type="number" step="0.001" name="logical_free_tb" class="num" id="lf"></label>
+        </div>
+        <p class="calc">잔차 = <b id="lsys">—</b> <span class="dim">통상 0</span></p>
+      </fieldset>
+
+      <label class="f4">비고
+        <input type="text" name="remark">
+      </label>
+    </div>
+  </section>
+
+  <div class="formbar">
+    <label class="byline">작성자<input type="text" name="updated_by" placeholder="이름"></label>
+    <button type="submit">저장</button>
+    <a class="cancel" href="/cluster/{{ cluster.id }}">취소</a>
+  </div>
+</form>
+
+{% if snapshots %}
+<section>
+  <h2>이력 <span class="dim">최근 36건</span></h2>
+  <table class="grid tight">
+    <thead>
+      <tr>
+        <th>측정일</th><th>Release</th>
+        <th class="num">U.Total</th><th class="num">U.Used</th>
+        <th class="num">U.Free</th><th class="num">System</th>
+        <th class="num">L.Total</th><th class="num">DRR</th>
+        <th>입력</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in snapshots %}
+      <tr>
+        <td class="mono">{{ s.measured_at }}</td>
+        <td class="mono dim">{{ s.release_at_time or '—' }}</td>
+        <td class="num mono">{{ s.usable_total_tb or '—' }}</td>
+        <td class="num mono">{{ s.usable_used_tb or '—' }}</td>
+        <td class="num mono">{{ s.usable_free_tb or '—' }}</td>
+        <td class="num mono dim">{{ s.usable_system_tb if s.usable_system_tb is not none else '—' }}</td>
+        <td class="num mono">{{ s.logical_total_tb or '—' }}</td>
+        <td class="num mono">{{ s.drr or '—' }}</td>
+        <td class="dim">{{ s.source }}{% if s.updated_by %} · {{ s.updated_by }}{% endif %}</td>
+        <td>
+          <form method="post" action="/cluster/{{ cluster.id }}/capacity/{{ s.id }}/delete">
+            <button type="submit" class="btn-del" title="삭제">&times;</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<script>
+(function () {
+  const v = id => parseFloat(document.getElementById(id).value);
+  function calc() {
+    const ut = v('ut'), uu = v('uu'), uf = v('uf');
+    document.getElementById('usys').textContent =
+      [ut, uu, uf].every(Number.isFinite) ? (ut - uu - uf).toFixed(3) : '—';
+    const lt = v('lt'), lu = v('lu'), lf = v('lf');
+    document.getElementById('lsys').textContent =
+      [lt, lu, lf].every(Number.isFinite) ? (lt - lu - lf).toFixed(3) : '—';
+  }
+  ['ut','uu','uf','lt','lu','lf'].forEach(id =>
+    document.getElementById(id).addEventListener('input', calc));
+})();
+</script>
+
+{% endblock %}

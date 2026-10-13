@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}장비 모델{% endblock %}
+{% block content %}
+
+<h1>장비 모델</h1>
+<p class="lede">클러스터 등록 폼의 드롭다운 목록입니다. 여기에 추가하면 바로 반영됩니다.</p>
+
+<form method="post" action="/models/add" class="inlineform">
+  <select name="kind" required>
+    {% for k, label in kind_label.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}
+  </select>
+  <input type="text" name="name" placeholder="모델명" required>
+  <input type="text" name="vendor" placeholder="벤더 (선택)">
+  <button type="submit">추가</button>
+</form>
+
+{% set d = request.query_params.get('deleted') %}
+{% if d is not none %}
+<div class="note{% if d|int %} warnbox{% endif %}">
+  <b>모델을 삭제했습니다.</b>
+  {% if d|int %}
+  <p>이 모델을 쓰던 장비 {{ d }}건은 장비명을 유지한 채 <code>직접 입력</code>으로 바뀌었습니다.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<table class="grid">
+  <thead><tr><th>구분</th><th>모델</th><th>벤더</th><th class="num">사용 중</th><th>상태</th><th></th></tr></thead>
+  <tbody>
+    {% for m in models %}
+    <tr class="{% if not m.is_active %}row-off{% endif %}">
+      <td>{{ kind_label[m.kind] }}</td>
+      <td class="mono">{{ m.name }}</td>
+      <td class="dim">{{ m.vendor or '—' }}</td>
+      <td class="num mono">{{ m.used }}</td>
+      <td>{% if m.is_active %}목록에 표시{% else %}<span class="dim">숨김</span>{% endif %}</td>
+      <td class="rowacts">
+        <form method="post" action="/models/{{ m.id }}/toggle">
+          <button type="submit" class="btn-sm">{{ '숨기기' if m.is_active else '표시' }}</button>
+        </form>
+        <form method="post" action="/models/{{ m.id }}/delete"
+              onsubmit="return confirm({% if m.used %}
+                '{{ m.name }} 을(를) 쓰는 장비가 {{ m.used }}건 있습니다.\n삭제해도 장비명은 남지만 \'직접 입력\' 으로 바뀌고, 드롭다운에서 다시 고를 수 없습니다.\n\n숨기기로 충분하지 않나요?\n\n그래도 삭제하시겠습니까?'
+              {% else %}
+                '{{ m.name }} 을(를) 삭제합니다.\n쓰고 있는 장비가 없어 영향받는 곳은 없습니다.'
+              {% endif %});">
+          <button type="submit" class="btn-del" title="삭제">&times;</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="hint">
+  <b>숨기기</b>는 드롭다운에서만 뺍니다. 이미 등록된 클러스터는 아무 영향이 없고,
+  나중에 다시 표시할 수 있습니다. 단종된 모델은 이쪽이 맞습니다.
+</p>
+<p class="hint">
+  <b>삭제(×)</b>는 행을 지웁니다. 쓰는 중이어도 장비명은 그 클러스터에 그대로 남지만,
+  <code>직접 입력</code>으로 바뀌고 드롭다운에서 다시 고를 수 없게 됩니다.
+  잘못 추가한 모델을 치울 때 쓰세요.
+</p>
+
+{% endblock %}

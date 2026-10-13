@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}{{ c.name }} 삭제{% endblock %}
+{% block content %}
+
+<div class="crumb">
+  <a href="/">클러스터</a> /
+  <a href="/cluster/{{ c.id }}">{{ c.name }}</a> / 삭제
+</div>
+<h1>{{ c.name }} <span class="dim">{{ c.customer_name }}</span></h1>
+
+{% if request.query_params.get('mismatch') %}
+<div class="note warnbox">
+  <b>입력값이 맞지 않아 삭제하지 않았습니다.</b>
+  <p>아래 확인란에 <code>DELETE</code> 를 입력하세요.</p>
+</div>
+{% endif %}
+
+<section>
+  <h2>철거 처리 <span class="dim">권장</span></h2>
+  <p class="hint">
+    상태만 <code>DECOMM</code> 으로 바꿉니다. 목록과 발행 대기에서 빠지고,
+    기록은 그대로 남아 나중에 "언제 무엇이 있었나"를 되짚을 수 있습니다.
+    위키 페이지는 그대로 있으니 필요하면 직접 내리세요.
+  </p>
+  {% if c.status == 'DECOMM' %}
+  <p class="hint dim">이미 DECOMM 상태입니다.</p>
+  {% else %}
+  <form method="post" action="/cluster/{{ c.id }}/decomm">
+    <div class="formbar">
+      <label class="byline">처리자
+        <input type="text" name="changed_by" placeholder="이름" maxlength="50">
+      </label>
+      <button type="submit">DECOMM 으로 변경</button>
+      <a class="cancel" href="/cluster/{{ c.id }}">취소</a>
+    </div>
+  </form>
+  {% endif %}
+</section>
+
+<section>
+  <h2 class="warn">완전 삭제</h2>
+
+  <div class="note warnbox">
+    <b>되돌릴 수 없습니다.</b>
+    <p>아래 행이 모두 함께 지워집니다. 변경 이력과 발행 이력도 사라집니다.</p>
+  </div>
+
+  <table class="grid tight" style="max-width:420px; margin-top:12px">
+    <tbody>
+      <tr><td>장비</td>      <td class="num mono">{{ counts.hardware }}</td></tr>
+      <tr><td>네트워크</td>  <td class="num mono">{{ counts.network }}</td></tr>
+      <tr><td>라이선스</td>  <td class="num mono">{{ counts.license }}</td></tr>
+      <tr><td>펌웨어</td>    <td class="num mono">{{ counts.firmware }}</td></tr>
+      <tr><td>용량 측정</td> <td class="num mono">{{ counts.capacity }}</td></tr>
+      <tr><td>변경 이력</td> <td class="num mono warn">{{ counts.changes }}</td></tr>
+      <tr><td>발행 이력</td> <td class="num mono warn">{{ counts.publishes }}</td></tr>
+    </tbody>
+  </table>
+
+  <p class="hint">
+    {% if c.sibling_count == 1 %}
+      이 고객사(<b>{{ c.customer_name }}</b>)의 마지막 클러스터입니다 — 고객사도 함께 지워집니다.
+    {% endif %}
+    {% if c.confluence_page_id %}
+      위키 페이지 <code>{{ c.confluence_page_id }}</code> 는 <b>지워지지 않습니다.</b>
+      필요하면 위키에서 직접 내리세요.
+    {% endif %}
+  </p>
+
+  <form method="post" action="/cluster/{{ c.id }}/delete">
+    <div class="formbar warnbox">
+      <label class="byline" style="width:260px">
+        확인 — <code>DELETE</code> 입력
+        <input type="text" name="confirm" autocomplete="off" required
+               placeholder="DELETE">
+      </label>
+      <button type="submit" style="background:var(--warn)">완전 삭제</button>
+      <a class="cancel" href="/cluster/{{ c.id }}">취소</a>
+    </div>
+  </form>
+</section>
+
+{% endblock %}

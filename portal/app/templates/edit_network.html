@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}네트워크 · {{ cluster.name }}{% endblock %}
+{% block content %}
+
+{% include "_edit_tabs.html" %}
+
+{% if errors %}
+<div class="note warnbox">
+  <b>읽지 못한 주소가 있어 저장하지 않았습니다.</b>
+  <p>{{ errors }}</p>
+</div>
+{% endif %}
+
+<form method="post" action="/cluster/{{ cluster.id }}/edit/network" class="bigform">
+  <section>
+    <h2>주소</h2>
+    <p class="hint">
+      주소는 위키에 쓰시던 표기 그대로 적으면 됩니다.
+      한 개는 <code>10.62.74.61/26</code>,
+      연속 대역은 <code>10.62.74.51-53/26</code>,
+      여러 개는 쉼표로 <code>165.243.17.15, 165.244.235.38</code>.
+      빈 칸이나 <code>-</code>, <code>NA</code>는 저장하지 않습니다.
+    </p>
+    <p class="hint">
+      대역이 아니라 띄엄띄엄한 주소는 끝자리만 묶어 적을 수 있습니다 —
+      <code>192.168.10.{151,154,157,160}</code>.
+      범위를 섞어도 됩니다: <code>192.168.10.{151,154,160-164}/24</code>.
+      저장은 한 주소씩 따로 되고(IP 검색을 위해), 위키에는 다시 묶어서 나갑니다.
+    </p>
+    <p class="hint">
+      <b>Enter 로는 저장되지 않습니다</b> — 다음 칸으로 넘어갑니다.
+      저장은 맨 아래 저장 버튼입니다.
+      회색 라벨은 위키 표의 고정 항목이라 고칠 수 없습니다.
+      그 밖의 항목은 <b>+ 행 추가</b>로 넣으세요 —
+      <code>Service IP 3</code>처럼 같은 계열로 적으면 <b>그 묶음 바로 뒤</b>에 들어갑니다.
+    </p>
+
+    <table class="grid tight nettable">
+      <thead>
+        <tr>
+          <th style="width:16%">위키 라벨</th>
+          <th style="width:13%">역할</th>
+          <th style="width:14%">망</th>
+          <th style="width:27%">주소</th>
+          <th style="width:9%" class="num">VLAN</th>
+          <th style="width:9%" class="num">MTU</th>
+          <th style="width:9%">비고</th>
+          <th style="width:3%"></th>
+        </tr>
+      </thead>
+      <tbody id="netbody">
+        {% for n in netrows %}
+        {% set std = n.is_std %}
+        <tr{% if std %} class="stdrow"{% endif %}>
+          <td>
+            {% if std %}
+              {# 위키 표의 고정 행. 철자가 바뀌면 위키에서 같은 항목이 두 줄로
+                 나오므로 고치지 못하게 한다. readonly 는 값이 그대로 전송된다. #}
+              <input type="text" name="net_label" value="{{ n.wiki_label }}" readonly>
+            {% else %}
+              <input type="text" name="net_label" value="{{ n.wiki_label }}"
+                     placeholder="예: Cnode ipmi ip">
+            {% endif %}
+          </td>
+          <td>
+            <select name="net_role">
+              {% for r in roles %}<option value="{{ r }}" {% if n.role == r %}selected{% endif %}>{{ r }}</option>{% endfor %}
+            </select>
+          </td>
+          <td>
+            <select name="net_fabric">
+              {% for fb in fabrics %}<option value="{{ fb }}" {% if n.fabric == fb %}selected{% endif %}>{{ fb }}</option>{% endfor %}
+            </select>
+          </td>
+          <td><input type="text" name="net_addr" class="mono" value="{{ n.addr }}"
+                     placeholder="10.62.74.51-53/26"></td>
+          <td><input type="number" name="net_vlan" class="num" value="{{ n.vlan or '' }}"></td>
+          <td><input type="number" name="net_mtu" class="num" value="{{ n.mtu or '' }}"></td>
+          <td><input type="text" name="net_remark" value="{{ n.remark or '' }}"></td>
+          <td>
+            {# 고정 행은 지워도 다음에 다시 나타난다. 지우는 대신 주소를 비우면 된다. #}
+            {% if not std %}
+            <button type="button" class="btn-del" title="행 삭제">&times;</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="rowacts" style="margin-top:8px">
+      <button type="button" class="btn-sm" id="net-add">+ 행 추가</button>
+      <button type="button" class="btn-sm" id="net-sort">위키 순서로 정렬</button>
+      <span class="hint-inline">저장하면 자동으로 이 순서가 됩니다</span>
+    </div>
+  </section>
+
+  <div class="formbar">
+    <label class="byline">작성자<input type="text" name="updated_by" placeholder="이름"></label>
+    <button type="submit">저장</button>
+    <a class="cancel" href="/cluster/{{ cluster.id }}">취소</a>
+  </div>
+</form>
+
+<template id="tpl-net">
+  <tr>
+    <td><input type="text" name="net_label" placeholder="예: Service IP 3"></td>
+    <td><select name="net_role">{% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}</select></td>
+    <td><select name="net_fabric">{% for fb in fabrics %}<option value="{{ fb }}">{{ fb }}</option>{% endfor %}</select></td>
+    <td><input type="text" name="net_addr" class="mono" placeholder="10.62.74.51-53/26"></td>
+    <td><input type="number" name="net_vlan" class="num"></td>
+    <td><input type="number" name="net_mtu" class="num"></td>
+    <td><input type="text" name="net_remark"></td>
+    <td><button type="button" class="btn-del" title="행 삭제">&times;</button></td>
+  </tr>
+</template>
+
+<script>
+(function () {
+  const body = document.getElementById('netbody');
+  const STD_LABELS = {{ std_labels | tojson }};   // 위키 표의 고정 행, 순서대로
+
+  document.getElementById('net-add').addEventListener('click', () => {
+    body.appendChild(document.getElementById('tpl-net').content.cloneNode(true));
+  });
+
+  body.addEventListener('click', e => {
+    if (e.target.classList.contains('btn-del')) e.target.closest('tr').remove();
+  });
+
+  /* 위키에 나갈 순서로 행을 늘어놓는다. 서버의 netparse.order_labels 와 같은 규칙.
+
+       1. 고정 행은 위키 표의 순서 그대로
+       2. 같은 계열의 추가 행은 그 묶음 바로 뒤에 번호순
+          ('Service IP 3' 은 'Service IP 2' 다음)
+       3. 어느 계열에도 안 붙는 행은 맨 뒤
+
+     저장하면 서버가 같은 규칙으로 다시 정렬하므로 이 버튼은 '미리 보기' 다.
+     입력 도중 자동으로 정렬하지는 않는다 — 타이핑 중에 행이 움직이면
+     어디를 적고 있었는지 놓친다. */
+  const key  = s => (s || '').toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
+  const stem = s => key(s).replace(/\d+$/, '');
+  const tail = s => { const m = (s || '').trim().match(/(\d+)\s*$/); return m ? +m[1] : 0; };
+
+  document.getElementById('net-sort').addEventListener('click', () => {
+    const rows = Array.from(body.rows);
+    const labelOf = tr => (tr.querySelector('input[name=net_label]')?.value || '').trim();
+
+    const stdKeys = STD_LABELS.map(key);
+    const extras = rows.filter(tr => !stdKeys.includes(key(labelOf(tr))));
+    const byKey = new Map(rows.map(tr => [key(labelOf(tr)), tr]));
+
+    const out = [];
+    STD_LABELS.forEach((lb, i) => {
+      const tr = byKey.get(key(lb));
+      if (tr) out.push(tr);
+      const st = stem(lb);
+      if (STD_LABELS.slice(i + 1).some(x => stem(x) === st)) return;  // 계열의 끝에서만
+      extras.filter(t => stem(labelOf(t)) === st && labelOf(t))
+            .sort((a, b) => tail(labelOf(a)) - tail(labelOf(b)))
+            .forEach(t => out.push(t));
+    });
+    rows.forEach(tr => { if (!out.includes(tr)) out.push(tr); });   // 남은 것 + 빈 행
+
+    out.forEach(tr => body.appendChild(tr));
+  });
+})();
+</script>
+
+{% endblock %}

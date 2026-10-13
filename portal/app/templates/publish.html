@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} 발행{% endblock %}
+{% block content %}
+
+<div class="crumb">
+  <a href="/">클러스터</a> /
+  <a href="/cluster/{{ basic.cluster_id }}">{{ basic.cluster_name }}</a> / 위키 발행
+</div>
+<h1>Confluence 발행</h1>
+<p class="lede">DB 값으로 위키 페이지를 만듭니다. 위키에서 표를 직접 고치면 다음 발행 때 덮어써집니다.</p>
+
+{% if request.query_params.get('ok') %}
+<div class="note" style="border-color:var(--accent)">
+  <b>발행했습니다.</b>
+  <a href="{{ base_url }}/wiki/spaces/{{ spec.confluence_space }}/pages/{{ spec.confluence_page_id }}"
+     target="_blank" rel="noopener">위키에서 열기 →</a>
+</div>
+{% endif %}
+{% if request.query_params.get('err') %}
+<div class="note warnbox">
+  <b>발행에 실패했습니다.</b>
+  <p>아래 발행 이력의 마지막 줄에 사유가 있습니다.</p>
+</div>
+{% endif %}
+
+<section>
+  <h2>대상</h2>
+  <dl class="kv">
+    <dt>페이지 제목</dt>
+    <dd>{{ title }}
+      {% if spec.wiki_title %}<span class="tag">직접 지정</span>
+      {% else %}<span class="dim">고객사 - 용도 자동 생성</span>{% endif %}
+    </dd>
+    <dt>스페이스</dt><dd class="mono">{{ spec.confluence_space }}</dd>
+    <dt>페이지</dt>
+    <dd class="mono">
+      {% if spec.confluence_page_id %}
+        {{ spec.confluence_page_id }}
+        <a href="{{ base_url }}/wiki/spaces/{{ spec.confluence_space }}/pages/{{ spec.confluence_page_id }}"
+           target="_blank" rel="noopener">열기</a>
+        <span class="dim">(갱신)</span>
+      {% else %}
+        <span class="dim">미지정 — 같은 제목의 페이지를 찾고, 없으면 새로 만듭니다</span>
+      {% endif %}
+    </dd>
+    <dt>API 인증</dt>
+    <dd class="{% if not configured %}warn{% else %}dim{% endif %}">
+      {% if configured %}
+        설정됨 <a href="/api/confluence/check" target="_blank">연결 확인 →</a>
+      {% else %}
+        미설정 — CONFLUENCE_EMAIL / CONFLUENCE_TOKEN 환경변수가 필요합니다
+      {% endif %}
+    </dd>
+  </dl>
+</section>
+
+{% if request.query_params.get('titledup') %}
+<div class="note warnbox">
+  <b>그 제목은 다른 클러스터가 쓰고 있습니다.</b>
+  <p>다른 제목을 넣으세요.</p>
+</div>
+{% endif %}
+
+{% if conflict %}
+<section>
+  <div class="note warnbox">
+    <b>페이지 제목이 겹칩니다 — 발행할 수 없습니다.</b>
+    <p><code>{{ title }}</code> 는
+       <b>{{ conflict.customer_name }} / {{ conflict.cluster_name }}</b> 도 쓰는 제목입니다.
+       그대로 발행하면 그쪽 위키 페이지를 덮어씁니다.</p>
+    <p>아래에서 이 클러스터의 페이지 제목을 직접 지정하세요.
+       예: <code>{{ title }} ({{ basic.cluster_name }})</code></p>
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <h2>페이지 제목 직접 지정 <span class="dim">선택</span></h2>
+  <p class="hint">
+    비워 두면 <code>고객사 - 용도</code> 로 자동 생성됩니다.
+    같은 고객사에 용도가 같은 클러스터가 둘 이상이면 여기서 구분해 주세요.
+    이미 발행한 뒤에 바꾸면 <b>그 페이지의 제목이 변경</b>됩니다(새로 만들지 않습니다).
+  </p>
+  <form method="post" action="/cluster/{{ basic.cluster_id }}/wiki-title"
+        class="inlineform">
+    <input type="text" name="wiki_title" maxlength="200" style="width:420px"
+           value="{{ spec.wiki_title or '' }}"
+           placeholder="{{ title }}">
+    <button type="submit">제목 저장</button>
+  </form>
+</section>
+
+{% if missing %}
+<section>
+  <div class="note warnbox">
+    <b>빈 항목 {{ missing | length }}개</b>
+    <p>위키에는 <code>-</code> 로 나갑니다. 그대로 발행해도 됩니다.</p>
+    <p class="mono">{{ missing | join(' · ') }}</p>
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <h2>미리보기 <span class="dim">위키에 들어갈 모양</span></h2>
+  <div class="wikiprev">{{ body | safe }}</div>
+</section>
+
+<section>
+  <h2>생성된 원본 <span class="dim">storage 형식</span></h2>
+  <p class="hint">API 가 막혀 있으면 이 값을 복사해 위키 편집기의
+    <code>&lt;/&gt;</code> 소스 보기에 붙여 넣어도 같은 결과가 됩니다.</p>
+  <textarea class="srcbox" rows="10" readonly onclick="this.select()">{{ body }}</textarea>
+</section>
+
+<form method="post" action="/cluster/{{ basic.cluster_id }}/publish">
+  <div class="formbar">
+    <label class="byline">발행자
+      <input type="text" name="published_by" placeholder="이름" maxlength="50">
+    </label>
+    <label class="byline" style="width:280px">버전 메모 <span class="dim">위키 버전 기록에 남습니다</span>
+      <input type="text" name="note" placeholder="포털에서 발행" maxlength="200">
+    </label>
+    <button type="submit" {% if not configured or conflict %}disabled{% endif %}>
+      {% if spec.confluence_page_id %}위키 갱신{% else %}위키에 발행{% endif %}
+    </button>
+    <a class="cancel" href="/cluster/{{ basic.cluster_id }}">취소</a>
+  </div>
+</form>
+
+<section style="margin-top:28px">
+  <h2>발행 이력</h2>
+  <table class="grid tight">
+    <thead><tr><th>시각</th><th>상태</th><th>페이지</th><th class="num">버전</th>
+               <th>발행자</th><th>메시지</th></tr></thead>
+    <tbody>
+      {% for h in history %}
+      <tr class="{% if h.status == 'FAILED' %}row-warn{% endif %}">
+        <td class="mono dim">{{ h.published_at }}</td>
+        <td class="{% if h.status == 'FAILED' %}warn{% else %}dim{% endif %}">{{ h.status }}</td>
+        <td class="mono dim">{{ h.page_id or '—' }}</td>
+        <td class="num mono">{{ h.page_version or '—' }}</td>
+        <td>{{ h.published_by or '—' }}</td>
+        <td class="dim">{{ h.message or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">발행 이력이 없습니다.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

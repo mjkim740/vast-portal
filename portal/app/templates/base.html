@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}VAST 고객사 사용현황{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">VAST 사용현황</a>
+    <nav>
+      <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>클러스터</a>
+      <a href="/models" {% if request.url.path == '/models' %}aria-current="page"{% endif %}>장비 모델</a>
+      <a href="/publish" {% if request.url.path == '/publish' %}aria-current="page"{% endif %}>위키 발행</a>
+      <a href="/api/docs">API</a>
+    </nav>
+    <span class="ver" title="배포된 코드 판">{{ app_version }}</span>
+    <a class="btn-new" href="/cluster/new">+ 클러스터 등록</a>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+<script>
+/* 여러 행을 입력하는 폼(.bigform)에서 Enter 로 저장되지 않게 한다.
+   브라우저 기본 동작은 텍스트 칸에서 Enter 를 누르면 폼을 제출하는 것이다.
+   이 화면들은 저장이 '전체 교체' 라서, 입력 중간에 제출되면 아직 못 채운
+   행이 저장되지 않은 상태로 확정된다. 실제로 그 때문에 데이터가 깨졌다.
+
+   막기만 하면 Enter 가 죽은 키가 되니, 다음 칸으로 넘어가게 한다(표 입력에서
+   사람이 기대하는 동작). textarea 와 버튼은 기본 동작을 그대로 둔다. */
+document.querySelectorAll('form.bigform').forEach(form => {
+  form.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey) return;
+    const t = e.target;
+    if (!t.matches('input:not([type=submit]):not([type=button])')) return;
+
+    e.preventDefault();
+    const fields = Array.from(
+      form.querySelectorAll('input:not([type=hidden]):not([readonly]), select, textarea')
+    ).filter(el => !el.disabled && el.offsetParent !== null);
+    const next = fields[fields.indexOf(t) + 1];
+    if (next) { next.focus(); if (next.select) next.select(); }
+  });
+});
+
+/* 저장하지 않고 화면을 떠나려 하면 알린다.
+
+   탭은 그냥 링크라서 누르면 페이지가 바뀌고, 입력 중이던 값은 사라진다.
+   자동 저장으로 해결하지 않은 이유: 이 화면들의 저장은 '전체 교체' 다.
+   아직 다 못 채운 상태로 몰래 저장되면 못 채운 행이 지워진 채 확정된다.
+   Enter 로 저장되던 문제와 같은 종류다. 그래서 저장은 사람이 누를 때만 하고,
+   떠나기 전에 묻기만 한다. */
+document.querySelectorAll('form.bigform').forEach(form => {
+  let dirty = false;
+  let saving = false;
+
+  const mark = () => {
+    if (dirty) return;
+    dirty = true;
+    const btn = form.querySelector('.formbar button[type=submit]');
+    if (btn && !form.querySelector('.dirtymark')) {
+      const tag = document.createElement('span');
+      tag.className = 'dirtymark';
+      tag.textContent = '저장 안 됨';
+      btn.insertAdjacentElement('afterend', tag);
+    }
+  };
+
+  form.addEventListener('input', mark);
+  form.addEventListener('change', mark);
+  form.addEventListener('click', e => {
+    if (e.target.closest('.btn-del, .btn-sm')) mark();   // 행 추가/삭제
+  });
+
+  form.addEventListener('submit', () => { saving = true; });
+
+  /* 화면 안의 링크(탭, 취소, 머리글 메뉴)를 누른 경우.
+     브라우저 기본 경고창은 문구를 정할 수 없어서, 링크는 직접 묻는다. */
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[href]');
+    if (!a || !dirty || saving) return;
+    if (a.target === '_blank' || a.getAttribute('href').startsWith('#')) return;
+    if (!confirm('저장하지 않은 내용이 있습니다.\n이 화면을 떠나면 입력한 값이 사라집니다.\n\n떠나시겠습니까?')) {
+      e.preventDefault();
+    }
+  }, true);
+
+  /* 탭 닫기, 뒤로 가기, 주소 직접 입력 — 위에서 못 잡는 경우의 안전망.
+     이때는 브라우저 기본 경고창이 뜬다(문구는 브라우저가 정한다). */
+  window.addEventListener('beforeunload', e => {
+    if (!dirty || saving) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}위키 발행{% endblock %}
+{% block content %}
+
+<h1>위키 발행</h1>
+<p class="lede">DB 가 원본이고 위키는 출력물입니다. 값을 고친 뒤 발행하지 않으면 위키가 뒤처집니다.</p>
+
+{% if not configured %}
+<div class="note warnbox">
+  <b>API 인증이 설정되지 않았습니다.</b>
+  <p>발행 버튼은 비활성 상태이고, 미리보기와 소스 복사는 동작합니다.
+     <code>CONFLUENCE_EMAIL</code> / <code>CONFLUENCE_TOKEN</code> 환경변수를 확인하세요.</p>
+</div>
+{% endif %}
+
+{% if failed %}
+<section>
+  <h2 class="warn">발행 실패 {{ failed | length }}건</h2>
+  <table class="grid tight">
+    <thead><tr><th>고객사</th><th>클러스터</th><th>시각</th><th>사유</th><th></th></tr></thead>
+    <tbody>
+      {% for f in failed %}
+      <tr class="row-warn">
+        <td>{{ f.customer_name }}</td>
+        <td>{{ f.cluster_name }}</td>
+        <td class="mono dim">{{ f.published_at }}</td>
+        <td class="dim">{{ f.message }}</td>
+        <td><a class="btn-sm" href="/cluster/{{ f.cluster_id }}/publish">다시</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section>
+  <h2>발행 필요 {{ pending | length }}건</h2>
+  <table class="grid">
+    <thead><tr><th>고객사</th><th>클러스터</th><th>DB 수정</th>
+               <th>최근 발행</th><th>상태</th><th></th></tr></thead>
+    <tbody>
+      {% for p in pending %}
+      <tr>
+        <td>{{ p.customer_name }}</td>
+        <td><a href="/cluster/{{ p.cluster_id }}">{{ p.cluster_name }}</a></td>
+        <td class="mono">{{ p.updated_at }}</td>
+        <td class="mono dim">{{ p.published_at or '없음' }}</td>
+        <td class="dim">{{ p.last_status or '—' }}</td>
+        <td><a class="btn-sm" href="/cluster/{{ p.cluster_id }}/publish">발행</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">모두 최신입니다.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

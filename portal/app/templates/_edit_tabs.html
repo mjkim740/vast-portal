@@ -1,0 +1,18 @@
+<div class="crumb">
+  <a href="/">클러스터</a> /
+  <a href="/cluster/{{ cluster.id }}">{{ cluster.name }}</a> / 입력
+</div>
+<h1>{{ cluster.name }} <span class="dim">{{ cluster.customer_name }}</span></h1>
+
+<nav class="tabs">
+  <a href="/cluster/{{ cluster.id }}/edit"
+     {% if tab == 'basic' %}aria-current="page"{% endif %}>기본 · 장비</a>
+  <a href="/cluster/{{ cluster.id }}/edit/network"
+     {% if tab == 'network' %}aria-current="page"{% endif %}>네트워크</a>
+  <a href="/cluster/{{ cluster.id }}/edit/license"
+     {% if tab == 'license' %}aria-current="page"{% endif %}>라이선스</a>
+  <a href="/cluster/{{ cluster.id }}/edit/firmware"
+     {% if tab == 'firmware' %}aria-current="page"{% endif %}>펌웨어</a>
+  <a href="/cluster/{{ cluster.id }}/edit/capacity"
+     {% if tab == 'capacity' %}aria-current="page"{% endif %}>용량</a>
+</nav>

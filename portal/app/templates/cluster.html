@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}{{ basic.customer_name }} · {{ basic.cluster_name }}{% endblock %}
+{% block content %}
+
+<div class="crumb"><a href="/">클러스터</a> / {{ basic.customer_name }}</div>
+<div class="pagehead">
+  <h1>{{ basic.cluster_name }}
+    {% if basic.status != 'PROD' %}<span class="tag">{{ basic.status }}</span>{% endif %}
+  </h1>
+  <a class="btn-sm" href="/cluster/{{ basic.cluster_id }}/edit">수정</a>
+  <a class="btn-sm" href="/cluster/{{ basic.cluster_id }}/publish">위키 발행</a>
+  <a class="btn-quiet" href="/cluster/{{ basic.cluster_id }}/delete">삭제</a>
+</div>
+{% if basic.purpose %}<p class="lede">{{ basic.purpose }}</p>{% endif %}
+
+<section>
+  <h2>기본 정보</h2>
+  <dl class="kv">
+    <dt>최종 갱신</dt>
+    <dd class="mono {% if basic.days_since_update and basic.days_since_update > 180 %}warn{% endif %}">
+      {{ basic.last_update or '기록 없음' }}
+      {% if basic.days_since_update %}<span class="dim">({{ basic.days_since_update }}일 전)</span>{% endif %}
+    </dd>
+    <dt>Cluster size</dt><dd class="mono">{{ basic.cluster_size or '—' }}</dd>
+    <dt>SW Release</dt><dd class="mono">{{ basic.vast_sw_release or '—' }}</dd>
+    <dt>Usable (T/U/F/Sys)</dt>
+    <dd class="mono">
+      {% if basic.usable_total_tb is not none %}
+        {{ basic.usable_total_tb }} / {{ basic.usable_used_tb or '—' }} /
+        {{ basic.usable_free_tb or '—' }} /
+        <span class="dim">{{ basic.usable_system_tb or '—' }}</span>
+      {% else %}—{% endif %}
+    </dd>
+    <dt>DRR</dt>
+    <dd class="mono {% if basic.drr_status == 'BELOW' %}warn{% endif %}">
+      {{ basic.drr or '—' }}
+      {% if basic.guaranteed_drr %}<span class="dim">보장 {{ basic.guaranteed_drr }}</span>{% endif %}
+    </dd>
+  </dl>
+</section>
+
+<section>
+  <h2>장비 구성</h2>
+  <p class="lede mono">{{ basic.cluster_detail or '등록된 장비가 없습니다.' }}</p>
+  {% if hardware %}
+  <table class="grid tight">
+    <thead><tr><th>구분</th><th>모델</th><th class="num">수량</th><th>용량</th></tr></thead>
+    <tbody>
+      {% for h in hardware %}
+      <tr>
+        <td>{{ kind_label[h.kind] }}</td>
+        <td class="mono">{{ h.model_name }}
+          {% if not h.model_id %}<span class="tag">직접 입력</span>{% endif %}</td>
+        <td class="num mono">{{ h.quantity }}</td>
+        <td class="mono dim">{{ h.capacity_note or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h2>구성 정보</h2>
+  <dl class="kv">
+    <dt>PSNT</dt><dd class="mono">{{ spec.psnt or '—' }}</dd>
+    <dt>구성 방식</dt><dd>{{ 'C + D (분리형)' if spec.model_type == 'CD' else 'E (단일형)' }}</dd>
+    <dt>Protocol</dt><dd>{{ protocols | join(', ') or '—' }}</dd>
+    <dt>Service type</dt><dd>{{ service_types | join(', ') or '—' }}</dd>
+    <dt>Service NiC</dt><dd>{{ spec.service_nic or '—' }}</dd>
+    <dt>MGMT Type</dt><dd>{{ spec.mgmt_type or '—' }}</dd>
+    <dt>IPMI Type</dt><dd>{{ spec.ipmi_type or '—' }}</dd>
+    <dt>설치 장소</dt><dd>{{ spec.site or '—' }}</dd>
+    <dt>설치일</dt><dd class="mono">{{ spec.install_date or '—' }}</dd>
+    <dt>지원 주체</dt><dd>{{ spec.support_status }}</dd>
+  </dl>
+  {% if spec.remark %}<p class="note">{{ spec.remark }}</p>{% endif %}
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>네트워크</h2>
+    <a class="btn-sm" href="/cluster/{{ basic.cluster_id }}/edit/network">입력</a>
+  </div>
+  <table class="grid tight">
+    <thead><tr><th style="width:20%">라벨</th><th style="width:14%">역할</th>
+               <th style="width:16%">망</th><th>주소</th></tr></thead>
+    <tbody>
+      {% for n in network %}
+      <tr>
+        <td>{{ n.wiki_label }}</td>
+        <td class="dim">{{ n.role }}</td>
+        <td class="dim">{{ n.fabric }}</td>
+        <td class="mono">{{ n.addresses }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="empty">
+        등록된 주소가 없습니다. <a href="/cluster/{{ basic.cluster_id }}/edit/network">입력하기</a>
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>라이선스</h2>
+    <a class="btn-sm" href="/cluster/{{ basic.cluster_id }}/edit/license">입력</a>
+  </div>
+  <table class="grid tight">
+    <thead><tr><th>유형</th><th class="num">기간</th><th>시작</th><th>종료</th>
+               <th class="num">용량</th><th>계약번호</th><th>상태</th></tr></thead>
+    <tbody>
+      {% for l in licenses %}
+      <tr class="{% if l.license_status in ('EXPIRED','EXPIRING') %}row-warn{% endif %}">
+        <td>{{ l.license_type }}{% if l.purpose %} <span class="dim">{{ l.purpose }}</span>{% endif %}</td>
+        <td class="num mono">{{ l.term_months or '—' }}{% if l.term_months %}개월{% endif %}</td>
+        <td class="mono dim">{{ l.start_date or '—' }}</td>
+        <td class="mono">{{ l.end_date or '—' }}</td>
+        <td class="num mono">{{ l.capacity_tb or '—' }}</td>
+        <td class="mono dim">{{ l.contract_no or '—' }}</td>
+        <td class="{% if l.license_status in ('EXPIRED','EXPIRING') %}warn{% else %}dim{% endif %}">
+          {{ l.license_status or 'UNKNOWN' }}
+          {% if l.days_left is not none and l.license_status == 'EXPIRING' %}
+            <span class="dim">D-{{ l.days_left }}</span>{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">
+        등록된 라이선스가 없습니다. <a href="/cluster/{{ basic.cluster_id }}/edit/license">입력하기</a>
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>펌웨어</h2>
+    <a class="btn-sm" href="/cluster/{{ basic.cluster_id }}/edit/firmware">입력</a>
+  </div>
+  {% if firmware %}
+  <dl class="kv">
+    {% for f in firmware %}
+      <dt>{{ f.component }}</dt>
+      <dd class="mono">{{ f.version }} <span class="dim">{{ f.checked_at }}</span></dd>
+    {% endfor %}
+  </dl>
+  {% else %}
+  <p class="empty">펌웨어 정보가 없습니다.
+    <a href="/cluster/{{ basic.cluster_id }}/edit/firmware">입력하기</a></p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>용량 이력</h2>
+    <a class="btn-sm" href="/cluster/{{ basic.cluster_id }}/edit/capacity">입력</a>
+  </div>
+  <table class="grid tight">
+    <thead><tr><th>측정일</th><th>Release</th>
+               <th class="num">U.Total</th><th class="num">U.Used</th>
+               <th class="num">U.Free</th><th class="num">System</th>
+               <th class="num">DRR</th><th>입력</th></tr></thead>
+    <tbody>
+      {% for s in snapshots %}
+      <tr>
+        <td class="mono">{{ s.measured_at }}</td>
+        <td class="mono dim">{{ s.release_at_time or '—' }}</td>
+        <td class="num mono">{{ s.usable_total_tb or '—' }}</td>
+        <td class="num mono">{{ s.usable_used_tb or '—' }}</td>
+        <td class="num mono">{{ s.usable_free_tb or '—' }}</td>
+        <td class="num mono dim">{{ s.usable_system_tb if s.usable_system_tb is not none else '—' }}</td>
+        <td class="num mono">{{ s.drr or '—' }}</td>
+        <td class="dim">{{ s.source }}{% if s.updated_by %} · {{ s.updated_by }}{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="empty">
+        측정값이 없습니다. <a href="/cluster/{{ basic.cluster_id }}/edit/capacity">입력하기</a>
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Confluence</h2>
+  <dl class="kv">
+    <dt>Space / Page</dt>
+    <dd class="mono">{{ spec.confluence_space }} /
+      {{ spec.confluence_page_id or '미지정 (첫 발행 시 생성)' }}</dd>
+    <dt>최근 발행</dt>
+    <dd class="mono {% if basic.last_publish_status == 'FAILED' %}warn{% endif %}">
+      {% if basic.last_published_at %}
+        {{ basic.last_published_at }} · {{ basic.last_publish_status }}
+      {% else %}발행 이력 없음{% endif %}
+    </dd>
+  </dl>
+  <p class="hint">
+    <a href="/cluster/{{ basic.cluster_id }}/publish">발행 화면으로 →</a>
+    미리보기에서 위키에 나갈 모양을 먼저 확인할 수 있습니다.
+  </p>
+</section>
+
+<section>
+  <h2>변경 이력 <span class="dim">최근 20건</span></h2>
+  <table class="grid tight">
+    <thead><tr><th>시각</th><th>작성자</th><th>구분</th><th>항목</th><th>이전</th><th>이후</th></tr></thead>
+    <tbody>
+      {% for c in changes %}
+      <tr>
+        <td class="mono dim">{{ c.changed_at }}</td>
+        <td>{{ c.changed_by or '—' }}</td>
+        <td class="dim">{{ c.action }}</td>
+        <td class="mono">{{ c.field_name or c.table_name }}</td>
+        <td class="mono dim">{{ c.old_value or '—' }}</td>
+        <td class="mono">{{ c.new_value or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">변경 이력이 없습니다.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

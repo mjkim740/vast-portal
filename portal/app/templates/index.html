@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="counts">
+  <span><b>{{ stats.customers }}</b> 고객사</span>
+  <span><b>{{ stats.clusters }}</b> 클러스터</span>
+  {% if stats.license_alert %}<span class="alert"><b>{{ stats.license_alert }}</b>건 라이선스 확인</span>{% endif %}
+  {% if stats.stale %}<span class="alert"><b>{{ stats.stale }}</b>개 갱신 지연</span>{% endif %}
+  {% if stats.publish_pending %}<span class="alert"><b>{{ stats.publish_pending }}</b>개 발행 대기</span>{% endif %}
+</div>
+
+<input class="search" type="search" name="q" value="{{ q }}"
+       placeholder="고객사, 클러스터, PSNT, 용도로 검색"
+       hx-get="/" hx-trigger="input changed delay:250ms, search"
+       hx-target="#tablewrap" hx-swap="innerHTML" autofocus>
+
+<div id="tablewrap">
+  {% include "_table.html" %}
+</div>
+
+{% endblock %}
