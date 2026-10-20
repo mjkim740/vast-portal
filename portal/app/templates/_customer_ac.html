@@ -1,0 +1,21 @@
+{# 고객사 자동완성 조각. /api/customers/suggest 가 이것만 돌려준다.
+   base.html 을 상속하지 않는다 — HTMX 가 입력란 아래 div 안에 끼워 넣는다. #}
+
+{% if matches %}
+<ul class="ac-list">
+  {% for m in matches %}
+  <li><button type="button" class="ac-item" data-name="{{ m.name }}">{{ m.name }}</button></li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if q %}
+  {% if exact %}
+  <p class="ac-note ok">기존 고객사입니다</p>
+  {% else %}
+  <p class="ac-note new">
+    <b>{{ q }}</b> — 저장하면 새 고객사로 등록됩니다.
+    {% if matches %}비슷한 이름이 위에 있으면 눌러서 고르세요.{% endif %}
+  </p>
+  {% endif %}
+{% endif %}

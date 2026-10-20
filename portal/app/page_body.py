@@ -37,7 +37,8 @@ TABLE_LAYOUT    = "full-width"
 # 열 폭(px). 왼쪽(항목명)이 줄바꿈되지 않을 만큼은 줘야 한다.
 COLW_BASIC = (340, 420)   # [기본 정보] — '용량 - Usable (Total/Used/System/Free)' 가 길다
 COLW_SPEC  = (200, 560)   # [구성 정보]
-COLW_FW    = (200, 560)   # [펌웨어]
+COLW_FW    = (200, 560)        # [펌웨어] — Model 열이 없을 때
+COLW_FW_M  = (160, 220, 380)   # [펌웨어] — Model 열이 있을 때. 합은 같게 둔다
 
 # 위키 표의 행 순서. 입력 폼의 표준 행과 같은 목록을 쓴다.
 # 두 곳에 따로 적어 두면 한쪽만 고쳐져 행이 어긋난다.
@@ -177,24 +178,40 @@ def _kv_table(pairs: list[tuple[str, str]], colwidth: tuple[int, int] | None = N
 
 
 def _fw_table(fw: list[dict]) -> str:
+    """[펌웨어] 표. Model 열은 값이 있을 때만 만든다.
+
+    왜 조건부인가
+      모델은 선택 입력이다. 열을 항상 넣으면 모델을 적지 않은 기존 페이지마다
+      빈 칸이 한 줄씩 늘어난다. 읽는 사람에게 아무것도 알려주지 않는 열이다.
+      한 건이라도 적힌 클러스터만 3열로 발행하고, 나머지는 지금 모양을 지킨다.
+    """
     rank = {c: i for i, c in enumerate(FW_ORDER)}
     ordered = sorted(fw, key=lambda f: (rank.get(f["component"], 99), f["component"]))
+
+    has_model = any((f.get("model") or "").strip() for f in ordered)
+    widths = COLW_FW_M if has_model else COLW_FW
+
+    heads = ["List"] + (["Model"] if has_model else []) + ["FW Version"]
+
     if not ordered:
-        rows = f'<tr><td><p>{NA}</p></td><td><p>{NA}</p></td></tr>'
+        rows = "<tr>" + "".join(f"<td><p>{NA}</p></td>" for _ in heads) + "</tr>"
     else:
-        rows = "".join(
-            f"<tr><td>{_p(FW_LABEL.get(f['component'], f['component']))}</td>"
-            f"<td>{_p(f['version'])}</td></tr>"
-            for f in ordered
-        )
+        out = []
+        for f in ordered:
+            cells = [_p(FW_LABEL.get(f["component"], f["component"]))]
+            if has_model:
+                cells.append(_p((f.get("model") or "").strip() or NA))
+            cells.append(_p(f["version"]))
+            out.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
+        rows = "".join(out)
+
     return (
         f'<table data-layout="{TABLE_LAYOUT}">'
-        f'<colgroup><col style="width: {COLW_FW[0]}px;" />'
-        f'<col style="width: {COLW_FW[1]}px;" /></colgroup>'
-        "<thead><tr>"
-        "<th><p><strong>List</strong></p></th>"
-        "<th><p><strong>FW Version</strong></p></th>"
-        f"</tr></thead><tbody>{rows}</tbody></table>"
+        "<colgroup>"
+        + "".join(f'<col style="width: {w}px;" />' for w in widths)
+        + "</colgroup><thead><tr>"
+        + "".join(f"<th><p><strong>{h}</strong></p></th>" for h in heads)
+        + f"</tr></thead><tbody>{rows}</tbody></table>"
     )
 
 
