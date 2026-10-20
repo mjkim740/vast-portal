@@ -58,6 +58,8 @@ FABRIC_LABEL = {
     "SERVICE_ETH":  "Ethernet",
 }
 
+KIND_LABEL = {"C": "CBox", "D": "DBox", "E": "EBox", "S": "스위치"}
+
 NIC_LABEL  = {"EXTERNAL": "External", "INTERNAL": "Internal", "MIXED": "Mixed"}
 TYPE_LABEL = {"OUTBAND": "outband", "INBAND": "inband", "B2B": "b2b"}
 
@@ -300,9 +302,51 @@ FOOTER = (
 )
 
 
+def unit_table(units: list[dict]) -> str:
+    """[장비 시리얼] 표. 등록된 장비가 하나도 없으면 아무것도 내지 않는다.
+
+    2단 레이아웃 안이 아니라 그 아래에 둔다. 장비가 열몇 대면 행이 그만큼 생겨서
+    한쪽 칸에 넣으면 좌우 높이가 심하게 어긋난다.
+    """
+    if not units:
+        return ""
+
+    rank = {k: i for i, k in enumerate(["C", "D", "E", "S"])}
+    ordered = sorted(units, key=lambda u: (rank.get(u.get("kind"), 9),
+                                           u.get("model_name") or "",
+                                           u.get("seq") or 0))
+    body = "".join(
+        "<tr>"
+        f"<td>{_p(KIND_LABEL.get(u.get('kind'), u.get('kind')))}</td>"
+        f"<td>{_p(u.get('model_name'))}</td>"
+        f"<td>{_p(u.get('seq'))}</td>"
+        f"<td>{_p(u.get('serial_no'))}</td>"
+        f"<td>{_p(u.get('part_no'))}</td>"
+        f"<td>{_p(u.get('remark'))}</td>"
+        "</tr>"
+        for u in ordered
+    )
+    return (
+        "<p />"
+        "<p>[장비 시리얼]</p>"
+        f'<table data-layout="{TABLE_LAYOUT}">'
+        '<colgroup><col style="width: 90px;" /><col style="width: 170px;" />'
+        '<col style="width: 60px;" /><col style="width: 220px;" />'
+        '<col style="width: 200px;" /><col style="width: 220px;" /></colgroup>'
+        "<thead><tr>"
+        "<th><p><strong>구분</strong></p></th>"
+        "<th><p><strong>모델</strong></p></th>"
+        "<th><p><strong>#</strong></p></th>"
+        "<th><p><strong>Serial</strong></p></th>"
+        "<th><p><strong>P/N</strong></p></th>"
+        "<th><p><strong>비고</strong></p></th>"
+        f"</tr></thead><tbody>{body}</tbody></table>"
+    )
+
+
 def build(basic: dict, spec: dict, licenses: list[dict], firmware: list[dict],
           protocols: list[str], service_types: list[str],
-          network: list[dict]) -> str:
+          network: list[dict], units: list[dict] | None = None) -> str:
     left = (
         "<p>[기본 정보]</p>"
         + basic_table(basic, licenses)
@@ -328,7 +372,7 @@ def build(basic: dict, spec: dict, licenses: list[dict], firmware: list[dict],
     else:
         body = left + "<p />" + right
 
-    return body + FOOTER
+    return body + unit_table(units or []) + FOOTER
 
 
 def page_title(d: dict) -> str:

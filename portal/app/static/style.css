@@ -361,3 +361,12 @@ button:hover { filter: brightness(1.1); }
 /* 모델 목록의 행 동작 버튼 — 숨기기/삭제를 한 줄에 */
 .rowacts { display: flex; gap: 8px; align-items: center; }
 .rowacts form { margin: 0; }
+
+/* 시리얼 등록 현황 — '3대 중 2대' */
+.fillmark {
+  margin-left: auto; font-family: "SF Mono","JetBrains Mono","Consolas",monospace;
+  font-size: 12px; color: var(--ink-dim);
+  padding: 2px 9px; border: 1px solid var(--line); border-radius: 10px;
+}
+.fillmark.partial { color: var(--warn); border-color: var(--warn); background: var(--warn-bg); }
+.unittable input { font-size: 13px; padding: 5px 7px; }

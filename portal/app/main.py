@@ -26,7 +26,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # 이미지 태그만으로는 알 수 없다 — 같은 태그로 덮어 빌드하거나, 예전 소스로
 # 새 태그를 빌드하면 태그와 내용이 어긋난다. 실제로 그 때문에 한 번 헤맸다.
 #   확인: curl -s http://<호스트>/healthz
-APP_VERSION = "2026-10-20.1"   # 목록 갱신 컬럼을 Last update 로
+APP_VERSION = "2026-10-20.2"   # + 장비 시리얼·P/N
 
 app = FastAPI(title="VAST 고객사 사용현황",
               docs_url="/api/docs", openapi_url="/api/openapi.json")
@@ -309,6 +309,16 @@ def cluster_detail(cluster_id: int, request: Request, db: Session = Depends(get_
             SELECT * FROM cluster_hardware WHERE cluster_id = :id
             ORDER BY FIELD(kind,'C','D','E','S'), sort_order, id
         """, id=cluster_id),
+        "units": rows(db, """
+            SELECT kind, model_name, seq, serial_no, part_no, remark
+            FROM hardware_unit WHERE cluster_id = :id
+            ORDER BY FIELD(kind,'C','D','E','S'), model_name, seq
+        """, id=cluster_id),
+        # 장비 행마다 '몇 대 중 몇 대 등록' 을 보여주기 위한 집계
+        "fill": {(r["kind"], r["model_name"]): r["filled"] for r in rows(db, """
+            SELECT kind, model_name, filled FROM v_hardware_unit_fill
+            WHERE cluster_id = :id
+        """, id=cluster_id)},
         "protocols": [r["protocol"] for r in rows(
             db, "SELECT protocol FROM cluster_protocol WHERE cluster_id=:id", id=cluster_id)],
         "service_types": [r["service_type"] for r in rows(

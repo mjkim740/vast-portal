@@ -52,6 +52,10 @@ def _gather(db: Session, cluster_id: int) -> dict:
             SELECT component, version, checked_at FROM v_firmware_current
             WHERE cluster_id = :id
         """, id=cluster_id),
+        "units": rows(db, """
+            SELECT kind, model_name, seq, serial_no, part_no, remark
+            FROM hardware_unit WHERE cluster_id = :id
+        """, id=cluster_id),
     }
 
 
@@ -60,6 +64,7 @@ def _build(data: dict) -> tuple[str, str]:
         basic=data["basic"], spec=data["spec"], licenses=data["licenses"],
         firmware=data["firmware"], protocols=data["protocols"],
         service_types=data["service_types"], network=data["network"],
+        units=data["units"],
     )
     # 제목은 wiki_title(cluster 테이블) 과 고객사/용도(뷰) 를 둘 다 본다.
     return page_body.page_title({**data["basic"], **data["spec"]}), body
