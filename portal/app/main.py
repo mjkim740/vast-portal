@@ -9,6 +9,7 @@ DB 가 원본이고 위키는 출력물이다.
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -26,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # 이미지 태그만으로는 알 수 없다 — 같은 태그로 덮어 빌드하거나, 예전 소스로
 # 새 태그를 빌드하면 태그와 내용이 어긋난다. 실제로 그 때문에 한 번 헤맸다.
 #   확인: curl -s http://<호스트>/healthz
-APP_VERSION = "2026-10-20.2"   # + 장비 시리얼·P/N
+APP_VERSION = "2026-10-20.3"   # + 고객사 자동완성·정리, 펌웨어 Model
 
 app = FastAPI(title="VAST 고객사 사용현황",
               docs_url="/api/docs", openapi_url="/api/openapi.json")
@@ -94,7 +95,8 @@ def _form_context(db, cluster=None):
     """신규/수정 폼이 공통으로 쓰는 컨텍스트."""
     return {
         "cluster": cluster,
-        "customers": rows(db, "SELECT id, name FROM customer ORDER BY name"),
+        # 고객사 목록은 넘기지 않는다. 폼이 드롭다운이 아니라 자동완성 입력란이고,
+        # 후보는 /api/customers/suggest 가 입력에 맞춰 그때그때 돌려준다.
         "models": rows(db, """
             SELECT id, kind, name, vendor FROM hardware_model
             WHERE is_active = 1 ORDER BY kind, sort_order, name
@@ -161,17 +163,27 @@ async def cluster_save(request: Request, db: Session = Depends(get_db)):
     cluster_id = int(cluster_id) if cluster_id else None
     by = (f.get("updated_by") or "").strip()
 
-    # ---- 고객사: 기존 선택 또는 신규 입력
-    customer_id = _blank_to_none(f.get("customer_id"))
-    new_customer = _blank_to_none(f.get("new_customer_name"))
-    if new_customer:
-        customer_id = scalar(db, "SELECT id FROM customer WHERE name = :n", n=new_customer)
-        if not customer_id:
-            run(db, "INSERT INTO customer (name, updated_by) VALUES (:n, NULLIF(:by,''))",
-                n=new_customer, by=by)
-            customer_id = scalar(db, "SELECT LAST_INSERT_ID()")
-    if not customer_id:
-        raise HTTPException(400, "고객사를 선택하거나 새로 입력하세요")
+    # ---- 고객사: 이름으로 찾고, 없으면 만든다.
+    #
+    # 드롭다운과 '새 고객사' 입력란을 자동완성 입력란 하나로 합쳤다. 고르는 것과
+    # 새로 적는 것이 같은 칸이 되어 customer_id 를 폼에서 받지 않는다.
+    # 이름이 곧 식별자다 — customer.uk_customer_name 이 중복을 막아준다.
+    #
+    # 오타가 새 고객사를 만드는 문제는 폼에서 막는다. 입력 중에 기존 고객사와
+    # 맞는지 보여주므로, 저장 전에 눈으로 확인할 수 있다.
+    cname = _blank_to_none(f.get("customer_name"))
+    if not cname:
+        raise HTTPException(400, "고객사명을 입력하세요")
+
+    customer_id = scalar(db, "SELECT id FROM customer WHERE name = :n", n=cname)
+    if customer_id:
+        # 숨겨둔(INACTIVE) 고객사에 클러스터를 다시 붙이면 쓰는 중인 것이다.
+        run(db, "UPDATE customer SET status='ACTIVE' WHERE id=:i AND status<>'ACTIVE'",
+            i=customer_id)
+    else:
+        run(db, "INSERT INTO customer (name, updated_by) VALUES (:n, NULLIF(:by,''))",
+            n=cname, by=by)
+        customer_id = scalar(db, "SELECT LAST_INSERT_ID()")
     customer_id = int(customer_id)
 
     payload = dict(
@@ -333,7 +345,7 @@ def cluster_detail(cluster_id: int, request: Request, db: Session = Depends(get_
             WHERE l.cluster_id = :id ORDER BY l.sort_order, l.id
         """, id=cluster_id),
         "firmware": rows(db, """
-            SELECT component, version, checked_at FROM v_firmware_current
+            SELECT component, model, version, checked_at FROM v_firmware_current
             WHERE cluster_id = :id
             ORDER BY FIELD(component,'OS','SCM','SSD','SWITCH','BMC','NIC','OTHER')
         """, id=cluster_id),
@@ -499,7 +511,111 @@ def model_delete(model_id: int, db: Session = Depends(get_db)):
     return RedirectResponse(f"/models?deleted={used or 0}", status_code=303)
 
 
+# ===================================================================== 고객사 관리
+#
+# 고객사는 클러스터를 저장할 때 자동으로 생긴다. 그래서 이 화면에 '추가' 는 없고,
+# 잘못 생긴 것을 고치거나 치우는 일만 한다.
+#
+# 수정과 삭제를 둘 다 두는 이유
+#   오타 고객사가 두 모양으로 나온다.
+#     (1) 클러스터가 붙어 있는 오타  — 클러스터를 다른 고객사로 옮기면 생긴다.
+#         이때 필요한 건 삭제가 아니라 이름 고치기다. 지우면 클러스터가 떠버린다.
+#     (2) 클러스터가 0 건인 오타     — 지우면 된다.
+#   둘이 섞여 있어서 한 화면에서 건수를 보고 사람이 고르게 한다.
+
+
+@app.get("/customers", response_class=HTMLResponse)
+def customers_page(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request=request, name="customers.html", context={
+        "customers": rows(db, """
+            SELECT cu.id, cu.name, cu.status,
+                   (SELECT COUNT(*) FROM cluster c WHERE c.customer_id = cu.id) AS clusters
+            FROM customer cu ORDER BY cu.name
+        """),
+    })
+
+
+@app.post("/customers/{customer_id}/rename")
+def customer_rename(customer_id: int, name: str = Form(...),
+                    db: Session = Depends(get_db)):
+    """고객사명을 고친다.
+
+    클러스터가 붙어 있어도 안전하다. 클러스터는 customer_id 로 연결돼 있어서
+    이름만 바뀌고 연결은 그대로다. 발행된 위키 페이지의 제목은 자동으로 바뀌지
+    않으므로, 제목에 고객사명이 들어간 클러스터는 다시 발행해야 한다.
+    """
+    new = name.strip()
+    old = scalar(db, "SELECT name FROM customer WHERE id = :i", i=customer_id)
+    if old is None:
+        raise HTTPException(404, "고객사를 찾을 수 없습니다")
+    if not new:
+        return RedirectResponse("/customers?err=empty", status_code=303)
+    if new == old:
+        return RedirectResponse("/customers", status_code=303)
+
+    # uk_customer_name 이 막아주지만, 500 대신 이유를 보여준다.
+    if scalar(db, "SELECT id FROM customer WHERE name = :n AND id <> :i",
+              n=new, i=customer_id):
+        return RedirectResponse(f"/customers?err=dup&name={quote(new)}", status_code=303)
+
+    run(db, "UPDATE customer SET name = :n WHERE id = :i", n=new, i=customer_id)
+    db.commit()
+    return RedirectResponse(
+        f"/customers?renamed={quote(old)}&to={quote(new)}", status_code=303)
+
+
+@app.post("/customers/{customer_id}/delete")
+def customer_delete(customer_id: int, db: Session = Depends(get_db)):
+    """클러스터가 하나도 없는 고객사만 지운다.
+
+    FK 가 RESTRICT 라 DB 도 거절하지만, 에러 화면보다 이유를 보여주는 쪽이 낫다.
+    """
+    c = one(db, """
+        SELECT cu.name,
+               (SELECT COUNT(*) FROM cluster c WHERE c.customer_id = cu.id) AS clusters
+        FROM customer cu WHERE cu.id = :i
+    """, i=customer_id)
+    if not c:
+        raise HTTPException(404, "고객사를 찾을 수 없습니다")
+    if c["clusters"]:
+        return RedirectResponse(f"/customers?err=inuse&name={quote(c['name'])}",
+                                status_code=303)
+
+    run(db, "DELETE FROM customer WHERE id = :i", i=customer_id)
+    db.commit()
+    return RedirectResponse(f"/customers?deleted={quote(c['name'])}", status_code=303)
+
+
 # ===================================================================== API
+
+
+@app.get("/api/customers/suggest", response_class=HTMLResponse)
+def customer_suggest(request: Request, customer_name: str = "",
+                     db: Session = Depends(get_db)):
+    """클러스터 등록 폼의 고객사 자동완성 후보.
+
+    HTMX 가 입력란의 값을 그 이름(customer_name)으로 보내므로 파라미터 이름이
+    폼 필드와 같다. HTML 조각을 돌려주는 이유는, 후보 목록과 '기존/신규' 표시를
+    한 번의 응답으로 갈아끼우기 때문이다. JSON 으로 받으면 그 조립을 브라우저
+    쪽 JS 로 다시 써야 한다.
+
+    정렬: 정확히 같은 이름 → 앞글자가 맞는 것 → 가나다. 'LX' 를 치면
+    'LX세미콘' 이 'ABC LX' 보다 먼저 와야 한다.
+    """
+    q = customer_name.strip()
+    matches = rows(db, """
+        SELECT name FROM customer
+        WHERE status = 'ACTIVE' AND (:q = '' OR name LIKE :like)
+        ORDER BY (name = :q) DESC, (name LIKE :pre) DESC, name
+        LIMIT 8
+    """, q=q, like=f"%{q}%", pre=f"{q}%")
+
+    # DB 콜레이션(utf8mb4_unicode_ci)은 대소문자를 구분하지 않는다. 화면 표시도
+    # 같은 기준이어야 'lgcns' 를 쳤을 때 '새 고객사' 로 잘못 뜨지 않는다.
+    exact = bool(q) and any(m["name"].casefold() == q.casefold() for m in matches)
+
+    return templates.TemplateResponse(request=request, name="_customer_ac.html",
+        context={"matches": matches, "q": q, "exact": exact})
 
 
 @app.get("/api/clusters")

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}고객사{% endblock %}
+{% block content %}
+
+<h1>고객사</h1>
+<p class="lede">
+  고객사는 클러스터를 저장할 때 자동으로 만들어집니다. 그래서 여기에 추가는 없고,
+  잘못 생긴 이름을 고치거나 치우는 일만 합니다.
+</p>
+
+{% set p = request.query_params %}
+
+{% if p.get('deleted') %}
+<div class="note">
+  <b>{{ p.get('deleted') }}</b> 를 삭제했습니다. 클러스터가 없던 고객사라 영향받는 곳은 없습니다.
+</div>
+{% elif p.get('renamed') %}
+<div class="note">
+  <b>{{ p.get('renamed') }}</b> → <b>{{ p.get('to') }}</b> 로 바꿨습니다.
+  이 고객사의 클러스터는 그대로 연결돼 있습니다.
+  <p>이미 발행한 위키 페이지의 <b>제목은 바뀌지 않습니다.</b>
+     제목에 고객사명이 들어간 클러스터는 <a href="/publish">위키 발행</a>에서 다시 발행하세요.</p>
+</div>
+{% elif p.get('err') == 'inuse' %}
+<div class="note warnbox">
+  <b>{{ p.get('name') }}</b> 는 클러스터가 있어 삭제할 수 없습니다.
+  <p>이름이 잘못된 경우라면 삭제가 아니라 <b>이름 수정</b>이 맞습니다 —
+     연결은 그대로 유지되고 클러스터는 아무 영향이 없습니다.</p>
+</div>
+{% elif p.get('err') == 'dup' %}
+<div class="note warnbox">
+  <b>{{ p.get('name') }}</b> 는 이미 있는 고객사명입니다.
+  <p>두 고객사를 하나로 합치려면, 한쪽 클러스터를 상세 화면에서 수정해 다른
+     고객사로 옮기고, 비워진 고객사를 여기서 삭제하세요.</p>
+</div>
+{% elif p.get('err') == 'empty' %}
+<div class="note warnbox"><b>고객사명은 비울 수 없습니다.</b></div>
+{% endif %}
+
+<table class="grid">
+  <thead><tr>
+    <th style="width:28%">고객사</th>
+    <th class="num" style="width:10%">클러스터</th>
+    <th>이름 수정</th>
+    <th style="width:6%"></th>
+  </tr></thead>
+  <tbody>
+    {% for cu in customers %}
+    <tr>
+      <td>{{ cu.name }}</td>
+      <td class="num mono">
+        {% if cu.clusters %}
+          <a href="/?q={{ cu.name|urlencode }}" title="이 고객사의 클러스터 보기">{{ cu.clusters }}</a>
+        {% else %}
+          <span class="dim">0</span>
+        {% endif %}
+      </td>
+      <td>
+        <form method="post" action="/customers/{{ cu.id }}/rename" class="inlineform">
+          <input type="text" name="name" value="{{ cu.name }}" required
+                 aria-label="{{ cu.name }} 이름 수정">
+          <button type="submit" class="btn-sm">저장</button>
+        </form>
+      </td>
+      <td class="rowacts">
+        {% if cu.clusters %}
+          <button type="button" class="btn-del" disabled
+                  title="클러스터 {{ cu.clusters }}건이 있어 삭제할 수 없습니다">&times;</button>
+        {% else %}
+          <form method="post" action="/customers/{{ cu.id }}/delete"
+                onsubmit="return confirm('{{ cu.name }} 을(를) 삭제합니다.\n연결된 클러스터가 없어 영향받는 곳은 없습니다.');">
+            <button type="submit" class="btn-del" title="삭제">&times;</button>
+          </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="hint">
+  <b>이름 수정</b>은 클러스터가 붙어 있어도 안전합니다. 클러스터는 이름이 아니라
+  내부 번호로 연결돼 있어서, 이름만 바뀌고 연결은 그대로입니다.
+  오타로 등록한 고객사명을 바로잡는 통로입니다.
+</p>
+<p class="hint">
+  <b>삭제(×)</b>는 클러스터가 0건일 때만 됩니다. 클러스터를 다른 고객사로 옮기면
+  원래 고객사가 0건으로 남는데, 그렇게 생긴 빈 고객사를 치울 때 쓰세요.
+</p>
+
+{% endblock %}

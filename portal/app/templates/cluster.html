@@ -176,7 +176,9 @@
   <dl class="kv">
     {% for f in firmware %}
       <dt>{{ f.component }}</dt>
-      <dd class="mono">{{ f.version }} <span class="dim">{{ f.checked_at }}</span></dd>
+      <dd class="mono">{{ f.version }}
+        {% if f.model %}<span class="dim">· {{ f.model }}</span>{% endif %}
+        <span class="dim">{{ f.checked_at }}</span></dd>
     {% endfor %}
   </dl>
   {% else %}

@@ -244,7 +244,8 @@ def firmware_form(cluster_id: int, request: Request, db: Session = Depends(get_d
     from .main import templates
 
     current = {r["component"]: r for r in rows(db, """
-        SELECT component, version, checked_at FROM v_firmware_current WHERE cluster_id=:id
+        SELECT component, model, version, checked_at FROM v_firmware_current
+        WHERE cluster_id=:id
     """, id=cluster_id)}
 
     return templates.TemplateResponse(request=request, name="edit_firmware.html", context={
@@ -253,7 +254,7 @@ def firmware_form(cluster_id: int, request: Request, db: Session = Depends(get_d
         "components": FW_COMPONENTS,
         "current": current,
         "history": rows(db, """
-            SELECT component, version, checked_at FROM cluster_firmware
+            SELECT component, model, version, checked_at FROM cluster_firmware
             WHERE cluster_id=:id ORDER BY checked_at DESC,
                   FIELD(component,'OS','SCM','SSD','SWITCH','BMC','NIC','OTHER')
             LIMIT 40
@@ -273,14 +274,20 @@ async def firmware_save(cluster_id: int, request: Request, db: Session = Depends
     n = 0
     for comp in FW_COMPONENTS:
         v = _blank(f.get(f"fw_{comp}"))
+        m = _blank(f.get(f"fwm_{comp}"))
+        # 버전이 없으면 그 줄은 없는 것으로 본다. model 만 적어도 저장하지 않는다 —
+        # cluster_firmware.version 이 NOT NULL 이고, 모델만 있는 행은 의미가 없다.
         if not v:
             continue
-        # 같은 날 같은 컴포넌트는 덮어쓰고, 날짜가 다르면 이력으로 쌓인다
+        # 같은 날 같은 컴포넌트는 덮어쓰고, 날짜가 다르면 이력으로 쌓인다.
+        # model 은 uk_fw 에 없으므로, 모델명을 고쳐도 행이 새로 생기지 않는다.
         run(db, """
-            INSERT INTO cluster_firmware (cluster_id, component, version, checked_at, updated_by)
-            VALUES (:c,:comp,:v,:at, NULLIF(:by,''))
-            ON DUPLICATE KEY UPDATE version=VALUES(version), updated_by=VALUES(updated_by)
-        """, c=cluster_id, comp=comp, v=v, at=checked_at, by=by)
+            INSERT INTO cluster_firmware
+              (cluster_id, component, model, version, checked_at, updated_by)
+            VALUES (:c,:comp,:m,:v,:at, NULLIF(:by,''))
+            ON DUPLICATE KEY UPDATE model=VALUES(model), version=VALUES(version),
+                                    updated_by=VALUES(updated_by)
+        """, c=cluster_id, comp=comp, m=m, v=v, at=checked_at, by=by)
         n += 1
 
     if n:

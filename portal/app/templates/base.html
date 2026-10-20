@@ -12,6 +12,7 @@
     <a class="brand" href="/">VAST 사용현황</a>
     <nav>
       <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>클러스터</a>
+      <a href="/customers" {% if request.url.path == '/customers' %}aria-current="page"{% endif %}>고객사</a>
       <a href="/models" {% if request.url.path == '/models' %}aria-current="page"{% endif %}>장비 모델</a>
       <a href="/publish" {% if request.url.path == '/publish' %}aria-current="page"{% endif %}>위키 발행</a>
       <a href="/api/docs">API</a>

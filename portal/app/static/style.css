@@ -370,3 +370,46 @@ button:hover { filter: brightness(1.1); }
 }
 .fillmark.partial { color: var(--warn); border-color: var(--warn); background: var(--warn-bg); }
 .unittable input { font-size: 13px; padding: 5px 7px; }
+
+/* ---------------------------------------------------------- 고객사 자동완성 */
+
+/* 후보를 입력란 아래에 겹쳐 띄운다.
+   흐름에 끼워 넣지 않는 이유: 후보가 떴다 사라질 때마다 아래 항목이 위아래로
+   움직이면 입력하던 사람이 자리를 잃는다. 드롭다운이 있던 자리를 그대로 쓴다. */
+.ac { position: relative; }
+
+.ac-pop {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 30;
+  margin-top: 3px;
+}
+
+.ac-list {
+  list-style: none; margin: 0; padding: 4px;
+  max-height: 240px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 5px; box-shadow: 0 6px 18px rgba(28, 32, 36, .10);
+}
+.ac-list li { margin: 0; }
+
+.ac-item {
+  display: block; width: 100%; text-align: left;
+  padding: 6px 8px; font-size: 14px; border-radius: 4px;
+  color: var(--ink); background: transparent; border: none;
+}
+.ac-item:hover, .ac-item:focus { background: var(--line-soft); filter: none; }
+
+/* 입력한 이름이 기존 고객사인지 알려주는 줄.
+   신규일 때만 경고색을 쓴다 — 오타가 새 고객사를 만드는 게 막으려는 사고다. */
+.ac-note {
+  margin: 3px 0 0; padding: 5px 8px; font-size: 12px; line-height: 1.45;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: var(--surface); color: var(--ink-dim);
+}
+.ac-note.new {
+  color: var(--warn); border-color: var(--warn); background: var(--warn-bg);
+}
+.ac-note.new b { color: var(--warn); }
+
+/* 표 안의 한 줄 폼(고객사 이름 수정)은 아래 여백이 필요 없다 */
+.grid .inlineform { margin: 0; }
+.grid .inlineform input { width: 100%; max-width: 280px; }

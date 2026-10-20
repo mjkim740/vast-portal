@@ -49,7 +49,7 @@ def _gather(db: Session, cluster_id: int) -> dict:
             SELECT * FROM license WHERE cluster_id = :id ORDER BY sort_order, id
         """, id=cluster_id),
         "firmware": rows(db, """
-            SELECT component, version, checked_at FROM v_firmware_current
+            SELECT component, model, version, checked_at FROM v_firmware_current
             WHERE cluster_id = :id
         """, id=cluster_id),
         "units": rows(db, """
