@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}장비 시리얼 · {{ cluster.name }}{% endblock %}
+{% block content %}
+
+{% include "_edit_tabs.html" %}
+
+{% if errors %}
+<div class="note warnbox">
+  <b>저장하지 않았습니다.</b>
+  <p>{{ errors }}</p>
+</div>
+{% endif %}
+
+<form method="post" action="/cluster/{{ cluster.id }}/edit/units" class="bigform">
+
+  {% if not groups %}
+  <section>
+    <h2>장비 시리얼</h2>
+    <p class="empty">
+      등록된 장비가 없습니다.
+      <a href="/cluster/{{ cluster.id }}/edit">기본 · 장비</a> 탭에서 장비를 먼저 넣으세요.
+    </p>
+  </section>
+  {% else %}
+
+  <section>
+    <h2>장비 시리얼 · 파트넘버</h2>
+    <p class="hint">
+      장비 목록의 수량만큼 칸이 만들어집니다. 아는 것만 채우면 되고, 빈 줄은 저장하지 않습니다.
+      수량을 바꾸려면 <a href="/cluster/{{ cluster.id }}/edit">기본 · 장비</a> 탭에서 고치세요.
+    </p>
+    <p class="hint">
+      시리얼은 전사에서 하나뿐이어야 합니다. 다른 고객사에 이미 등록된 값을 넣으면
+      어디와 겹치는지 알려드립니다.
+    </p>
+  </section>
+
+  {% for g in groups %}
+  <section>
+    <div class="hwgroup-head">
+      <h3>{{ g.kind_label }} · <span class="mono">{{ g.model_name }}</span></h3>
+      <span class="fillmark {% if g.filled < g.quantity %}partial{% endif %}">
+        {{ g.quantity }}대 중 {{ g.filled }}대 등록
+      </span>
+    </div>
+
+    <table class="grid tight unittable">
+      <thead>
+        <tr>
+          <th style="width:9%" class="num">#</th>
+          <th style="width:32%">Serial</th>
+          <th style="width:30%">P/N</th>
+          <th>비고</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in g.units %}
+        <tr>
+          <td class="num mono dim">{{ u.seq }}</td>
+          <td>
+            <input type="hidden" name="u_key" value="{{ g.kind }}|{{ g.model_name }}|{{ u.seq }}">
+            <input type="text" name="u_serial" class="mono" value="{{ u.serial_no }}"
+                   autocomplete="off" placeholder="예: VA24442801">
+          </td>
+          <td><input type="text" name="u_part" class="mono" value="{{ u.part_no }}"
+                     autocomplete="off" placeholder="예: MSN3700-VS2FO"></td>
+          <td><input type="text" name="u_remark" value="{{ u.remark }}"
+                     placeholder="교체 이력 등"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endfor %}
+  {% endif %}
+
+  {% if orphans %}
+  <section>
+    <div class="note warnbox">
+      <b>현재 장비 목록에 없는 시리얼 {{ orphans | length }}건</b>
+      <p>
+        모델명을 고쳤거나 장비 행을 지워서 떠 있는 값입니다.
+        아래 그대로 저장하면 <b>사라집니다.</b> 살리려면
+        <a href="/cluster/{{ cluster.id }}/edit">기본 · 장비</a> 탭에서 모델명을 맞춰 주세요.
+      </p>
+    </div>
+    <table class="grid tight" style="margin-top:12px">
+      <thead><tr><th>구분</th><th>모델</th><th class="num">#</th>
+                 <th>Serial</th><th>P/N</th><th>비고</th></tr></thead>
+      <tbody>
+        {% for o in orphans %}
+        <tr class="row-warn">
+          <td>{{ kind_label[o.kind] }}</td>
+          <td class="mono">{{ o.model_name }}</td>
+          <td class="num mono">{{ o.seq }}</td>
+          <td class="mono">{{ o.serial_no or '—' }}</td>
+          <td class="mono dim">{{ o.part_no or '—' }}</td>
+          <td class="dim">{{ o.remark or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  {% if groups %}
+  <div class="formbar">
+    <label class="byline">작성자<input type="text" name="updated_by" placeholder="이름"></label>
+    <button type="submit">저장</button>
+    <a class="cancel" href="/cluster/{{ cluster.id }}">취소</a>
+  </div>
+  {% endif %}
+
+</form>
+
+{% endblock %}

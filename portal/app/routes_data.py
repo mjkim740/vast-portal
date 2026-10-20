@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from . import audit, netparse
-from .db import get_db, one, rows, run
+from .db import get_db, one, rows, run, scalar
 
 router = APIRouter()
 
@@ -353,3 +353,149 @@ def capacity_delete(cluster_id: int, snapshot_id: int, db: Session = Depends(get
         s=snapshot_id, c=cluster_id)
     db.commit()
     return RedirectResponse(f"/cluster/{cluster_id}/edit/capacity", status_code=303)
+
+
+# ===================================================================== 장비 개체
+#
+# 시리얼과 파트넘버를 장비 한 대씩 기록한다.
+#
+# 화면 구성
+#   장비 목록(cluster_hardware)의 수량만큼 칸을 만들어 둔다. 'SMC 3대' 면 1~3호기
+#   세 줄이다. 아는 것만 채우면 되고, 빈 줄은 저장하지 않는다.
+#
+# 저장
+#   장비 행 단위로 전체 교체한다. 수량을 줄이면 넘치는 번호는 사라진다.
+#   (수량 3 → 2 로 줄이면 3호기 시리얼은 지워진다. 화면에서 보이므로 알 수 있다.)
+
+
+def _hw_rows(db, cluster_id: int) -> list[dict]:
+    return rows(db, """
+        SELECT kind, model_name, quantity
+        FROM cluster_hardware WHERE cluster_id = :id
+        ORDER BY FIELD(kind,'C','D','E','S'), sort_order, id
+    """, id=cluster_id)
+
+
+@router.get("/cluster/{cluster_id}/edit/units", response_class=HTMLResponse)
+def units_form(cluster_id: int, request: Request, db: Session = Depends(get_db)):
+    from .main import templates, KIND_LABEL
+
+    cluster = _cluster_or_404(db, cluster_id)
+    saved = rows(db, """
+        SELECT kind, model_name, seq, serial_no, part_no, remark
+        FROM hardware_unit WHERE cluster_id = :id
+    """, id=cluster_id)
+    by_key = {(u["kind"], u["model_name"], u["seq"]): u for u in saved}
+
+    # 장비 목록의 수량만큼 칸을 깔고, 저장된 값이 있으면 채운다
+    groups: list[dict] = []
+    used: set[tuple] = set()
+    for h in _hw_rows(db, cluster_id):
+        units = []
+        for seq in range(1, int(h["quantity"]) + 1):
+            key = (h["kind"], h["model_name"], seq)
+            used.add(key)
+            u = by_key.get(key) or {}
+            units.append({"seq": seq,
+                          "serial_no": u.get("serial_no") or "",
+                          "part_no":   u.get("part_no") or "",
+                          "remark":    u.get("remark") or ""})
+        groups.append({"kind": h["kind"], "kind_label": KIND_LABEL[h["kind"]],
+                       "model_name": h["model_name"], "quantity": h["quantity"],
+                       "filled": sum(1 for x in units if x["serial_no"]),
+                       "units": units})
+
+    # 장비 목록에 더 이상 없는 시리얼. 모델명을 고쳤거나 행을 지운 경우다.
+    # 조용히 감추면 "어디 갔지" 가 되므로 따로 보여주고 지울 수 있게 한다.
+    orphans = [u for u in saved
+               if (u["kind"], u["model_name"], u["seq"]) not in used
+               and (u["serial_no"] or u["part_no"])]
+
+    return templates.TemplateResponse(request=request, name="edit_units.html", context={
+        "cluster": cluster, "tab": "units", "groups": groups, "orphans": orphans,
+        "kind_label": KIND_LABEL,
+        "errors": request.query_params.get("err", ""),
+    })
+
+
+@router.post("/cluster/{cluster_id}/edit/units")
+async def units_save(cluster_id: int, request: Request, db: Session = Depends(get_db)):
+    _cluster_or_404(db, cluster_id)
+    f = await request.form()
+    by = (f.get("updated_by") or "").strip()
+
+    keys     = f.getlist("u_key")        # "kind|model_name|seq"
+    serials  = f.getlist("u_serial")
+    parts    = f.getlist("u_part")
+    remarks  = f.getlist("u_remark")
+
+    parsed: list[dict] = []
+    seen: dict[str, str] = {}
+    for i, raw in enumerate(keys):
+        try:
+            kind, model_name, seq = raw.rsplit("|", 2)
+        except ValueError:
+            continue
+        serial = (serials[i] if i < len(serials) else "").strip()
+        part   = (parts[i]   if i < len(parts)   else "").strip()
+        remark = (remarks[i] if i < len(remarks) else "").strip()
+        if not (serial or part or remark):
+            continue                      # 빈 줄은 저장하지 않는다
+
+        # 같은 폼 안에서 시리얼이 겹치는 건 대개 복사 실수다. 저장 전에 잡는다.
+        if serial:
+            if serial in seen:
+                return _units_err(cluster_id,
+                                  f"시리얼 '{serial}' 이 {seen[serial]} 와 "
+                                  f"{model_name} {seq}호기에 중복 입력되었습니다")
+            seen[serial] = f"{model_name} {seq}호기"
+
+        parsed.append({"kind": kind, "model_name": model_name, "seq": int(seq),
+                       "serial": serial or None, "part": part or None,
+                       "remark": remark or None})
+
+    # 다른 클러스터가 이미 쓰는 시리얼인지 확인한다. DB 의 UNIQUE 로도 막히지만,
+    # 그 오류 메시지로는 어느 고객사와 겹치는지 알 수 없다.
+    for p in parsed:
+        if not p["serial"]:
+            continue
+        dup = one(db, """
+            SELECT cu.name AS customer_name, c.name AS cluster_name, u.model_name, u.seq
+            FROM hardware_unit u
+            JOIN cluster  c  ON c.id  = u.cluster_id
+            JOIN customer cu ON cu.id = c.customer_id
+            WHERE u.serial_no = :s AND u.cluster_id <> :c
+        """, s=p["serial"], c=cluster_id)
+        if dup:
+            return _units_err(cluster_id,
+                              f"시리얼 '{p['serial']}' 은 이미 "
+                              f"{dup['customer_name']} / {dup['cluster_name']} "
+                              f"({dup['model_name']} {dup['seq']}호기) 에 등록되어 있습니다")
+
+    before = scalar(db, """
+        SELECT COUNT(*) FROM hardware_unit
+        WHERE cluster_id = :c AND serial_no IS NOT NULL AND serial_no <> ''
+    """, c=cluster_id) or 0
+
+    run(db, "DELETE FROM hardware_unit WHERE cluster_id = :c", c=cluster_id)
+    for p in parsed:
+        run(db, """
+            INSERT INTO hardware_unit
+              (cluster_id, kind, model_name, seq, serial_no, part_no, remark, updated_by)
+            VALUES (:c,:k,:m,:q,:s,:p,:r, NULLIF(:by,''))
+        """, c=cluster_id, k=p["kind"], m=p["model_name"], q=p["seq"],
+             s=p["serial"], p=p["part"], r=p["remark"], by=by)
+
+    after = sum(1 for p in parsed if p["serial"])
+    if before != after:
+        audit.log(db, cluster_id, "UPDATE", "hardware_unit", None,
+                  "시리얼", f"{before}대", f"{after}대", by)
+    db.commit()
+    return RedirectResponse(f"/cluster/{cluster_id}", status_code=303)
+
+
+def _units_err(cluster_id: int, msg: str) -> RedirectResponse:
+    """하나라도 틀리면 저장하지 않는다. 일부만 들어가면 더 헷갈린다."""
+    from urllib.parse import quote
+    return RedirectResponse(f"/cluster/{cluster_id}/edit/units?err={quote(msg)}",
+                            status_code=303)

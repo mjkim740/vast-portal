@@ -44,7 +44,8 @@
   <p class="lede mono">{{ basic.cluster_detail or '등록된 장비가 없습니다.' }}</p>
   {% if hardware %}
   <table class="grid tight">
-    <thead><tr><th>구분</th><th>모델</th><th class="num">수량</th><th>용량</th></tr></thead>
+    <thead><tr><th>구분</th><th>모델</th><th class="num">수량</th><th>용량</th>
+               <th class="num">시리얼</th></tr></thead>
     <tbody>
       {% for h in hardware %}
       <tr>
@@ -53,11 +54,43 @@
           {% if not h.model_id %}<span class="tag">직접 입력</span>{% endif %}</td>
         <td class="num mono">{{ h.quantity }}</td>
         <td class="mono dim">{{ h.capacity_note or '—' }}</td>
+        {% set f = fill.get((h.kind, h.model_name), 0) %}
+        <td class="num mono {% if f < h.quantity %}dim{% endif %}">{{ f }} / {{ h.quantity }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% endif %}
+</section>
+
+<section>
+  <div class="sechead">
+    <h2>장비 시리얼</h2>
+    <a class="btn-sm" href="/cluster/{{ basic.cluster_id }}/edit/units">입력</a>
+  </div>
+  <table class="grid tight">
+    <thead><tr><th style="width:12%">구분</th><th style="width:22%">모델</th>
+               <th style="width:6%" class="num">#</th>
+               <th style="width:25%">Serial</th><th style="width:23%">P/N</th>
+               <th>비고</th></tr></thead>
+    <tbody>
+      {% for u in units %}
+      <tr>
+        <td>{{ kind_label[u.kind] }}</td>
+        <td class="mono">{{ u.model_name }}</td>
+        <td class="num mono dim">{{ u.seq }}</td>
+        <td class="mono">{{ u.serial_no or '—' }}</td>
+        <td class="mono dim">{{ u.part_no or '—' }}</td>
+        <td class="dim">{{ u.remark or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">
+        등록된 시리얼이 없습니다.
+        <a href="/cluster/{{ basic.cluster_id }}/edit/units">입력하기</a>
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </section>
 
 <section>

@@ -7,6 +7,8 @@
 <nav class="tabs">
   <a href="/cluster/{{ cluster.id }}/edit"
      {% if tab == 'basic' %}aria-current="page"{% endif %}>기본 · 장비</a>
+  <a href="/cluster/{{ cluster.id }}/edit/units"
+     {% if tab == 'units' %}aria-current="page"{% endif %}>시리얼</a>
   <a href="/cluster/{{ cluster.id }}/edit/network"
      {% if tab == 'network' %}aria-current="page"{% endif %}>네트워크</a>
   <a href="/cluster/{{ cluster.id }}/edit/license"

@@ -10,8 +10,11 @@ __pycache__/
 .venv/
 venv/
 
-# 배포 산출물
+# 배포 산출물 / 작업 중 백업
 *.tar.gz
+portal.bak.*
+*.bak
+*.orig
 
 # 편집기 / OS
 .vscode/
