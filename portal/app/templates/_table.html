@@ -10,7 +10,7 @@
       <th class="num">Usable</th>
       <th class="num">사용률</th>
       <th class="num">DRR</th>
-      <th>갱신</th>
+      <th class="num">Last update</th>
     </tr>
   </thead>
   <tbody>
@@ -28,8 +28,11 @@
       <td class="num mono">{{ c.usable_total_tb or '—' }}</td>
       <td class="num mono">{% if c.used_pct is not none %}{{ c.used_pct }}%{% else %}—{% endif %}</td>
       <td class="num mono {% if c.drr_status == 'BELOW' %}warn{% endif %}">{{ c.drr or '—' }}</td>
-      <td class="num {% if c.days_since_update and c.days_since_update > 180 %}warn{% else %}dim{% endif %}">
-        {% if c.last_update %}{{ c.days_since_update }}일 전{% else %}없음{% endif %}
+      {# 마지막 측정일. 경과 일수는 마우스를 올리면 보인다 —
+         한눈에 필요한 건 '언제 기준 값인가' 이고, 며칠 지났는지는 색이 말해준다. #}
+      <td class="num mono {% if c.days_since_update and c.days_since_update > 180 %}warn{% else %}dim{% endif %}"
+          {% if c.days_since_update is not none %}title="{{ c.days_since_update }}일 전"{% endif %}>
+        {% if c.last_update %}{{ c.last_update.strftime('%y-%m-%d') }}{% else %}—{% endif %}
       </td>
     </tr>
   {% else %}
