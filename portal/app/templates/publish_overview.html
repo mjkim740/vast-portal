@@ -98,13 +98,14 @@
       <option value="1" {% if level == 1 %}selected{% endif %}>1 — 표만 (검증된 구조만)</option>
       <option value="2" {% if level == 2 %}selected{% endif %}>2 — + 고객사 링크</option>
       <option value="3" {% if level == 3 %}selected{% endif %}>3 — + 메모 목록 · 안내 패널</option>
-      <option value="4" {% if level == 4 %}selected{% endif %}>4 — + 목차 (Page Tree 매크로)</option>
+      <option value="4" {% if level == 4 %}selected{% endif %}>4 — + 목차 (children 매크로)</option>
+      <option value="5" {% if level == 5 %}selected{% endif %}>5 — 목차를 Page Tree 매크로로</option>
     </select>
     <button type="submit" class="btn-sm">미리보기 바꾸기</button>
   </form>
   <p class="hint">
     지금은 <b>{{ level }}단계</b>입니다. 아래 미리보기와 원본, 그리고 발행 버튼이 모두 이 단계를 따릅니다.
-    4단계가 통과하면 더 고민할 것이 없습니다 — 그게 원래 의도한 모양입니다.
+    5단계까지 통과하면 원래 의도한 모양입니다. 4단계만 통과해도 목차는 나옵니다 — 이 페이지는 하위가 한 겹이라 보이는 결과가 같습니다.
   </p>
 </section>
 

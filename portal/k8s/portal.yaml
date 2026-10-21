@@ -24,7 +24,7 @@ spec:
               app: portal-api
       containers:
         - name: api
-          image: 10.20.15.121:5000/vast-portal:v16   # ← 빌드할 때마다 태그를 올린다
+          image: 10.20.15.121:5000/vast-portal:v17   # ← 빌드할 때마다 태그를 올린다
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
