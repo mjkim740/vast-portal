@@ -416,12 +416,36 @@ def page_title(d: dict) -> str:
 #
 # 이 페이지는 포털보다 먼저 있었고 손으로 적은 내용이 섞여 있었다. 통째로
 # 덮어쓰기로 정한 이상, 남아야 할 것은 전부 DB 에서 나와야 한다.
-#   - 목차(Page Tree 매크로)는 다시 만들어 넣는다. 재현 가능한 것이라 잃을 게 없다.
 #   - 클러스터 메모는 '비고' 열로 낸다(cluster.remark).
 #   - 고객사 메모는 표 아래 목록으로 낸다(customer.remark). 포털에 아직 클러스터가
 #     없는 고객사는 표에 행이 없어서 비고 열로는 담을 수 없다.
+#   - 목차(Page Tree)는 다시 만들어 넣는다. 재현 가능한 것이라 잃을 게 없다.
 #
-# 위키에서 직접 적은 내용은 다음 발행 때 사라진다. 그래서 페이지에 안내를 남긴다.
+# ---------------------------------------------------------------------------
+# LEVEL — 왜 단계가 있는가
+#
+# 첫 발행이 'API 오류 500' 으로 떨어졌다. Confluence 가 본문을 거부했는데,
+# 500 은 어디가 문제인지 알려주지 않는다. 이 표에는 클러스터별 페이지에서
+# 한 번도 쓰지 않은 요소가 섞여 있었다 — 즉 검증된 적이 없다.
+#
+# 그래서 단계마다 '검증 안 된 것' 을 하나씩만 더 쓴다. 발행 화면에서 단계를
+# 골라 눌러 보면, 어느 단계에서 깨지는지로 원인이 바로 좁혀진다. 재빌드가
+# 필요 없다는 게 핵심이다 — 500 하나로 추측 게임을 하지 않기 위한 장치다.
+#
+#   1  표만            클러스터 페이지에서 이미 통과한 구조만 쓴다
+#   2  + 고객사 링크    표 안의 <a href>
+#   3  + 메모·안내      표 아래 목록(ul/li) 과 info 매크로
+#   4  + 목차           Page Tree 매크로
+#
+# 2~4 가 다 통과하면 이 단계 구분은 의미를 잃는다. 그때 기본값(4)으로 두고
+# 선택 칸만 화면에서 빼면 된다.
+#
+# 처음 시도에서 뺀 것들(원인 후보에서 제외):
+#   data-width 속성        클러스터 표는 data-layout 만 쓴다. 폭은 colgroup 이 정한다
+#   머리글 가운데 정렬      <p style="text-align: center"> — 통과한 적 없는 인라인 스타일
+#   <br /> 로 줄바꿈        한 칸에 여러 줄은 <p> 를 여러 개 쓰는 쪽이 이미 통과했다
+
+OVERVIEW_LEVEL_MAX = 4
 
 # 열 이름과 폭(px). 폭 합계를 기존 표와 같은 1800 으로 맞춘다.
 # 기존 표는 License 다음에 머리글이 빈 열이 하나 있었다. 용도를 알 수 없어
@@ -463,29 +487,27 @@ def hw_lines(detail_label: str | None) -> list[str]:
     return out
 
 
-def _customer_cell(c: dict) -> str:
-    """고객사 이름. 그 클러스터 페이지가 발행돼 있으면 링크를 건다.
+def _customer_cell(c: dict, link: bool) -> str:
+    """고객사 이름. link 가 참이고 그 클러스터 페이지가 발행돼 있으면 링크를 건다.
 
     ac:link 대신 보통 링크를 쓴다. pageId 로 바로 가는 주소라 페이지 제목이
-    바뀌어도 깨지지 않고, storage→에디터 변환에서 잃을 네임스페이스도 없다.
-    상대 주소라 사이트 호스트를 코드에 박지 않는다.
+    바뀌어도 깨지지 않고, 상대 주소라 사이트 호스트를 코드에 박지 않는다.
     """
     name = _t(c.get("customer_name"))
     pid = str(c.get("confluence_page_id") or "").strip()
-    if not pid.isdigit():
+    if not link or not pid.isdigit():
         return f"<p>{name}</p>"
     return f'<p><a href="/wiki/pages/viewpage.action?pageId={pid}">{name}</a></p>'
 
 
-def _overview_row(c: dict) -> str:
-    # Cluster 칸: 이름 한 줄, 그 아래 장비 구성. 기존 위키 표가 이 모양이다.
+def _overview_row(c: dict, level: int) -> str:
+    # Cluster 칸: 이름 한 줄, 그 아래 장비 구성을 한 줄씩. <br /> 대신 <p> 를
+    # 여러 개 쓴다 — 클러스터 페이지에서 이미 통과한 방식이다.
     cname = _t(c.get("cluster_name"))
     if (c.get("status") or "PROD") != "PROD":
         cname += f" ({escape(str(c['status']))})"
-    cluster = f"<p>{cname}</p>"
-    lines = hw_lines(c.get("cluster_detail"))
-    if lines:
-        cluster += "<p>" + "<br />".join(escape(x) for x in lines) + "</p>"
+    cluster = f"<p>{cname}</p>" + "".join(
+        f"<p>{escape(x)}</p>" for x in hw_lines(c.get("cluster_detail")))
 
     # Update: 날짜만으로는 오래된 값인지 모른다. 180 일이 넘으면 표시한다.
     upd = c.get("last_update")
@@ -505,7 +527,7 @@ def _overview_row(c: dict) -> str:
     end = c.get("license_end")
 
     cells = [
-        _customer_cell(c),
+        _customer_cell(c, link=level >= 2),
         update,
         cluster,
         f"<p>{_t(c.get('psnt'))}</p>",
@@ -532,45 +554,44 @@ OVERVIEW_FOOTER = (
     "</ac:rich-text-body></ac:structured-macro>"
 )
 
+OVERVIEW_PAGETREE = (
+    "<p />"
+    "<p><strong>목차</strong></p>"
+    # root=@self 로 두면 '이 페이지 아래' 를 그린다. 페이지 제목을 쓰지 않아
+    # 제목이 바뀌어도 매크로가 깨지지 않는다.
+    '<ac:structured-macro ac:name="pagetree" ac:schema-version="1">'
+    '<ac:parameter ac:name="root">@self</ac:parameter>'
+    '<ac:parameter ac:name="startDepth">1</ac:parameter>'
+    "</ac:structured-macro>"
+)
 
-def overview_build(clusters: list[dict], memos: list[dict]) -> str:
-    """전체 현황 페이지 본문.
 
-    구성: 표 → 목차(Page Tree) → 고객사 메모 → 안내
-    기존 페이지의 순서를 그대로 따른다.
-    """
+def overview_build(clusters: list[dict], memos: list[dict], level: int = OVERVIEW_LEVEL_MAX) -> str:
+    """전체 현황 페이지 본문. level 은 위 LEVEL 설명 참고."""
+    level = max(1, min(int(level or OVERVIEW_LEVEL_MAX), OVERVIEW_LEVEL_MAX))
+
     cols = "".join(f'<col style="width: {w}px;" />' for _, w in OVERVIEW_COLS)
-    head = "".join(
-        f'<th><p style="text-align: center"><strong>{escape(h)}</strong></p></th>'
-        for h, _ in OVERVIEW_COLS
-    )
-    body = ("".join(_overview_row(c) for c in clusters) if clusters else
+    head = "".join(f"<th><p><strong>{escape(h)}</strong></p></th>"
+                   for h, _ in OVERVIEW_COLS)
+    body = ("".join(_overview_row(c, level) for c in clusters) if clusters else
             "<tr>" + "".join(f"<td><p>{NA}</p></td>" for _ in OVERVIEW_COLS) + "</tr>")
 
-    out = [
-        f'<table data-layout="{TABLE_LAYOUT}" data-width="{OVERVIEW_WIDTH}">'
-        f"<colgroup>{cols}</colgroup>"
-        f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>",
-        "<p />",
-        "<p><strong>목차</strong></p>",
-        # root=@self 로 두면 '이 페이지 아래' 를 그린다. 페이지 제목을 쓰지 않아
-        # 제목이 바뀌어도 매크로가 깨지지 않는다.
-        '<ac:structured-macro ac:name="pagetree" ac:schema-version="1">'
-        '<ac:parameter ac:name="root">@self</ac:parameter>'
-        '<ac:parameter ac:name="startDepth">1</ac:parameter>'
-        '<ac:parameter ac:name="expandCollapseAll">true</ac:parameter>'
-        "</ac:structured-macro>",
-    ]
+    out = [f'<table data-layout="{TABLE_LAYOUT}">'
+           f"<colgroup>{cols}</colgroup>"
+           f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"]
 
-    if memos:
-        out.append("<p />")
-        out.append("<p><strong>고객사 메모</strong></p>")
-        out.append("<ul>" + "".join(
-            f"<li><p><strong>{_t(m.get('name'))}</strong> &#8212; {_t(m.get('remark'))}</p></li>"
-            for m in memos
-        ) + "</ul>")
+    if level >= 3:
+        if memos:
+            out.append("<p />")
+            out.append("<p><strong>고객사 메모</strong></p>")
+            out.append("<ul>" + "".join(
+                f"<li><p><strong>{_t(m.get('name'))}</strong> &#8212; {_t(m.get('remark'))}</p></li>"
+                for m in memos) + "</ul>")
+        out.append(OVERVIEW_FOOTER)
 
-    out.append(OVERVIEW_FOOTER)
+    if level >= 4:
+        out.append(OVERVIEW_PAGETREE)
+
     return "".join(out)
 
 
