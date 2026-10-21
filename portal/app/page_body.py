@@ -435,9 +435,12 @@ def page_title(d: dict) -> str:
 #   1  표만            클러스터 페이지에서 이미 통과한 구조만 쓴다
 #   2  + 고객사 링크    표 안의 <a href>
 #   3  + 메모·안내      표 아래 목록(ul/li) 과 info 매크로
-#   4  + 목차           Page Tree 매크로
+#   4  + 목차           children 매크로 (매개변수 없음)
+#   5  목차를 pagetree 로  원래 쓰려던 매크로. root 생략형
 #
-# 2~4 가 다 통과하면 이 단계 구분은 의미를 잃는다. 그때 기본값(4)으로 두고
+# 확인된 결과: 1~3 통과, 4(옛 pagetree, root=@self) 실패 → 원인은 그 매개변수.
+#
+# 2~5 가 다 통과하면 이 단계 구분은 의미를 잃는다. 그때 기본값으로 두고
 # 선택 칸만 화면에서 빼면 된다.
 #
 # 처음 시도에서 뺀 것들(원인 후보에서 제외):
@@ -445,7 +448,7 @@ def page_title(d: dict) -> str:
 #   머리글 가운데 정렬      <p style="text-align: center"> — 통과한 적 없는 인라인 스타일
 #   <br /> 로 줄바꿈        한 칸에 여러 줄은 <p> 를 여러 개 쓰는 쪽이 이미 통과했다
 
-OVERVIEW_LEVEL_MAX = 4
+OVERVIEW_LEVEL_MAX = 5
 
 # 열 이름과 폭(px). 폭 합계를 기존 표와 같은 1800 으로 맞춘다.
 # 기존 표는 License 다음에 머리글이 빈 열이 하나 있었다. 용도를 알 수 없어
@@ -554,13 +557,32 @@ OVERVIEW_FOOTER = (
     "</ac:rich-text-body></ac:structured-macro>"
 )
 
+# 목차 — 두 가지 매크로를 단계로 나눠 둔다.
+#
+# 처음에 쓴 형태가 500 을 냈다. 1~3 단계가 통과하고 4 단계만 실패했으므로
+# 원인은 Page Tree 매크로다. 범인은 root 매개변수로 본다 — 저장 형식에서
+# root 는 링크 타입을 기대하는데 '@self' 를 평문으로 넣었다. 원래 페이지도
+# root 에 페이지 제목을 링크로 담고 있었다.
+#
+#   4 단계  children   하위 페이지 목록. 매개변수가 없어 틀릴 여지가 없다.
+#                      이 페이지의 자식은 클러스터 페이지 한 겹이라, 트리든
+#                      목록이든 화면에 보이는 결과가 같다.
+#   5 단계  pagetree   원래 쓰려던 매크로. root 를 아예 생략한다 —
+#                      생략하면 '이 페이지' 가 기본 뿌리다.
+#
+# 4 가 통과하면 목차는 확보된 것이다. 5 까지 통과하면 원래 의도한 모양이 된다.
+# 5 가 실패하면 4 로 두고 끝낸다 — 보이는 결과가 같으므로 잃는 게 없다.
+
+OVERVIEW_CHILDREN = (
+    "<p />"
+    "<p><strong>목차</strong></p>"
+    '<ac:structured-macro ac:name="children" ac:schema-version="1" />'
+)
+
 OVERVIEW_PAGETREE = (
     "<p />"
     "<p><strong>목차</strong></p>"
-    # root=@self 로 두면 '이 페이지 아래' 를 그린다. 페이지 제목을 쓰지 않아
-    # 제목이 바뀌어도 매크로가 깨지지 않는다.
     '<ac:structured-macro ac:name="pagetree" ac:schema-version="1">'
-    '<ac:parameter ac:name="root">@self</ac:parameter>'
     '<ac:parameter ac:name="startDepth">1</ac:parameter>'
     "</ac:structured-macro>"
 )
@@ -589,8 +611,11 @@ def overview_build(clusters: list[dict], memos: list[dict], level: int = OVERVIE
                 for m in memos) + "</ul>")
         out.append(OVERVIEW_FOOTER)
 
-    if level >= 4:
+    # 목차는 한 번만 넣는다. 5 단계는 4 단계의 매크로를 바꾸는 것이지 더하는 게 아니다.
+    if level >= 5:
         out.append(OVERVIEW_PAGETREE)
+    elif level >= 4:
+        out.append(OVERVIEW_CHILDREN)
 
     return "".join(out)
 
