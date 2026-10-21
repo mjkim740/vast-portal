@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # 이미지 태그만으로는 알 수 없다 — 같은 태그로 덮어 빌드하거나, 예전 소스로
 # 새 태그를 빌드하면 태그와 내용이 어긋난다. 실제로 그 때문에 한 번 헤맸다.
 #   확인: curl -s http://<호스트>/healthz
-APP_VERSION = "2026-10-20.4"   # + 전체 현황 발행, 고객사 메모
+APP_VERSION = "2026-10-21.1"   # 전체 현황 본문 단계별 발행(500 원인 추적)
 
 app = FastAPI(title="VAST 고객사 사용현황",
               docs_url="/api/docs", openapi_url="/api/openapi.json")

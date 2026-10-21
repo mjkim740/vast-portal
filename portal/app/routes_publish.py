@@ -309,10 +309,10 @@ ORDER BY name
 """
 
 
-def _overview(db: Session) -> tuple[list[dict], list[dict], str]:
+def _overview(db: Session, level: int) -> tuple[list[dict], list[dict], str]:
     clusters = rows(db, OVERVIEW_SQL, ip_label=page_body.OVERVIEW_IP_LABEL)
     memos = rows(db, MEMO_SQL)
-    return clusters, memos, page_body.overview_build(clusters, memos)
+    return clusters, memos, page_body.overview_build(clusters, memos, level)
 
 
 def _wiki_state(page_id: str) -> dict:
@@ -347,10 +347,12 @@ def _overview_log(db: Session, status: str, who: str | None,
 
 
 @router.get("/publish/overview", response_class=HTMLResponse)
-def overview_preview(request: Request, db: Session = Depends(get_db)):
+def overview_preview(request: Request, db: Session = Depends(get_db),
+                     level: int = page_body.OVERVIEW_LEVEL_MAX):
     from .main import templates
 
-    clusters, memos, body = _overview(db)
+    level = max(1, min(level, page_body.OVERVIEW_LEVEL_MAX))
+    clusters, memos, body = _overview(db, level)
     target = confluence.overview_page_id()
     wiki = _wiki_state(target)
 
@@ -359,6 +361,8 @@ def overview_preview(request: Request, db: Session = Depends(get_db)):
             "clusters": clusters,
             "memos": memos,
             "body": body,
+            "level": level,
+            "level_max": page_body.OVERVIEW_LEVEL_MAX,
             "wiki": wiki,
             "target": target,
             "configured": confluence.configured(),
@@ -376,37 +380,43 @@ def overview_preview(request: Request, db: Session = Depends(get_db)):
 @router.post("/publish/overview")
 def overview_publish(db: Session = Depends(get_db),
                      published_by: str = Form(""), note: str = Form(""),
-                     confirm: str = Form("")):
-    clusters, _memos, body = _overview(db)
+                     confirm: str = Form(""),
+                     level: int = Form(page_body.OVERVIEW_LEVEL_MAX)):
+    level = max(1, min(level, page_body.OVERVIEW_LEVEL_MAX))
+    clusters, _memos, body = _overview(db, level)
     who = (published_by or "").strip() or None
     target = confluence.overview_page_id()
     wiki = _wiki_state(target)
 
+    # 어느 단계로 발행했는지 기록에 남긴다. 500 처럼 사유를 알 수 없는 실패는
+    # '몇 단계에서 깨졌나' 가 유일한 단서다.
+    tag = f"[L{level}] "
+
     if wiki.get("error"):
         _overview_log(db, "FAILED", who, page_id=target or None,
-                      message=f"대상 페이지를 읽을 수 없습니다: {wiki['error']}")
+                      message=f"{tag}대상 페이지를 읽을 수 없습니다: {wiki['error']}")
         db.commit()
-        return RedirectResponse("/publish/overview?err=1", status_code=303)
+        return RedirectResponse(f"/publish/overview?err=1&level={level}", status_code=303)
 
     # 행이 줄어드는 발행만 확인 문구를 받는다. 이관이 끝나 행 수가 안정되면
     # 매번 타이핑할 이유가 없다 — 위험한 경우에만 손이 가게 한다.
     losing = wiki["rows"] - len(clusters)
     if losing > 0 and confirm.strip().upper() != "OVERWRITE":
         return RedirectResponse(
-            f"/publish/overview?needconfirm={losing}", status_code=303)
+            f"/publish/overview?needconfirm={losing}&level={level}", status_code=303)
 
     try:
         result = confluence.update_page(
             wiki["id"], wiki["title"], body, wiki["version"],
-            note=(note or "").strip() or "포털에서 전체 현황 발행",
+            note=(note or "").strip() or f"포털에서 전체 현황 발행 (L{level})",
         )
     except confluence.ConfluenceError as e:
-        _overview_log(db, "FAILED", who, page_id=wiki["id"], message=str(e))
+        _overview_log(db, "FAILED", who, page_id=wiki["id"], message=f"{tag}{e}")
         db.commit()
-        return RedirectResponse("/publish/overview?err=1", status_code=303)
+        return RedirectResponse(f"/publish/overview?err=1&level={level}", status_code=303)
 
     _overview_log(db, "OK", who, page_id=result["id"], version=result["version"],
-                  message=f"{len(clusters)}행 발행"
+                  message=f"{tag}{len(clusters)}행 발행"
                           + (f" (이전 {wiki['rows']}행)" if wiki["rows"] else ""))
     db.commit()
-    return RedirectResponse("/publish/overview?ok=1", status_code=303)
+    return RedirectResponse(f"/publish/overview?ok=1&level={level}", status_code=303)
