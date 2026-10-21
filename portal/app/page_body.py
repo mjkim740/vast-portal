@@ -408,3 +408,183 @@ def page_title(d: dict) -> str:
     cust = (d.get("customer_name") or "").strip()
     tail = (d.get("purpose") or "").strip() or (d.get("cluster_name") or "").strip()
     return f"{cust} - {tail}".strip(" -") if tail else cust
+
+
+# ===================================================================== 전체 현황
+#
+# 위키의 '[VAST Data] 고객사 사용현황' 페이지를 포털이 통째로 만든다.
+#
+# 이 페이지는 포털보다 먼저 있었고 손으로 적은 내용이 섞여 있었다. 통째로
+# 덮어쓰기로 정한 이상, 남아야 할 것은 전부 DB 에서 나와야 한다.
+#   - 목차(Page Tree 매크로)는 다시 만들어 넣는다. 재현 가능한 것이라 잃을 게 없다.
+#   - 클러스터 메모는 '비고' 열로 낸다(cluster.remark).
+#   - 고객사 메모는 표 아래 목록으로 낸다(customer.remark). 포털에 아직 클러스터가
+#     없는 고객사는 표에 행이 없어서 비고 열로는 담을 수 없다.
+#
+# 위키에서 직접 적은 내용은 다음 발행 때 사라진다. 그래서 페이지에 안내를 남긴다.
+
+# 열 이름과 폭(px). 폭 합계를 기존 표와 같은 1800 으로 맞춘다.
+# 기존 표는 License 다음에 머리글이 빈 열이 하나 있었다. 용도를 알 수 없어
+# '만료일' 로 채웠다 — 라이선스 상태만으로는 언제 끝나는지 알 수 없다.
+OVERVIEW_COLS = [
+    ("고객사",  160), ("Update",   90), ("Cluster", 200), ("PSNT",    120),
+    ("Release", 130), ("Usable",  100), ("Logical", 100), ("DRR",      80),
+    ("License", 100), ("만료일",  110), ("IP",      420), ("비고",    190),
+]
+OVERVIEW_WIDTH = sum(w for _, w in OVERVIEW_COLS)
+
+# IP 칸에 넣을 네트워크 행. 전체 현황은 한 칸뿐이라 접속 기준이 되는 주소를 쓴다.
+# 다른 행을 쓰려면 이 한 줄만 고치면 된다.
+OVERVIEW_IP_LABEL = "VMS mgmt ip"
+
+# 라이선스 상태는 뷰에서 파생된 영문 코드다. 위키는 사람이 읽는 표라 한글로 낸다.
+LICENSE_LABEL = {
+    "ACTIVE": "유효", "EXPIRING": "만료임박", "EXPIRED": "만료",
+    "PENDING": "시작전", "UNKNOWN": "미확인",
+}
+
+_HW_ITEM = re.compile(r"^(?P<name>.+?)\((?P<qty>\d+)\)$")
+
+
+def hw_lines(detail_label: str | None) -> list[str]:
+    """'CL(2), Maverick(3)' → ['2 x CL', '3 x Maverick']
+
+    위키 Cluster 칸이 원래 이 표기였다. DB 는 'Model(수량)' 으로 들고 있고,
+    바꾸는 건 발행할 때만 한다 — 포털 화면은 DB 표기를 그대로 쓴다.
+    모양이 다른 조각은 손대지 않고 그대로 낸다.
+    """
+    out = []
+    for part in (detail_label or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        m = _HW_ITEM.match(part)
+        out.append(f"{m.group('qty')} x {m.group('name')}" if m else part)
+    return out
+
+
+def _customer_cell(c: dict) -> str:
+    """고객사 이름. 그 클러스터 페이지가 발행돼 있으면 링크를 건다.
+
+    ac:link 대신 보통 링크를 쓴다. pageId 로 바로 가는 주소라 페이지 제목이
+    바뀌어도 깨지지 않고, storage→에디터 변환에서 잃을 네임스페이스도 없다.
+    상대 주소라 사이트 호스트를 코드에 박지 않는다.
+    """
+    name = _t(c.get("customer_name"))
+    pid = str(c.get("confluence_page_id") or "").strip()
+    if not pid.isdigit():
+        return f"<p>{name}</p>"
+    return f'<p><a href="/wiki/pages/viewpage.action?pageId={pid}">{name}</a></p>'
+
+
+def _overview_row(c: dict) -> str:
+    # Cluster 칸: 이름 한 줄, 그 아래 장비 구성. 기존 위키 표가 이 모양이다.
+    cname = _t(c.get("cluster_name"))
+    if (c.get("status") or "PROD") != "PROD":
+        cname += f" ({escape(str(c['status']))})"
+    cluster = f"<p>{cname}</p>"
+    lines = hw_lines(c.get("cluster_detail"))
+    if lines:
+        cluster += "<p>" + "<br />".join(escape(x) for x in lines) + "</p>"
+
+    # Update: 날짜만으로는 오래된 값인지 모른다. 180 일이 넘으면 표시한다.
+    upd = c.get("last_update")
+    if upd:
+        txt = upd.strftime("%y-%m-%d")
+        days = c.get("days_since_update")
+        if days is not None and days > 180:
+            txt += " (지연)"
+        update = f"<p>{escape(txt)}</p>"
+    else:
+        update = f"<p>{NA}</p>"
+
+    drr = _n(c["drr"]) if c.get("drr") is not None else NA
+    if c.get("drr_status") == "BELOW":
+        drr += " (미달)"
+
+    end = c.get("license_end")
+
+    cells = [
+        _customer_cell(c),
+        update,
+        cluster,
+        f"<p>{_t(c.get('psnt'))}</p>",
+        f"<p>{_t(c.get('vast_sw_release'))}</p>",
+        f"<p>{_n(c['usable_total_tb']) if c.get('usable_total_tb') is not None else NA}</p>",
+        f"<p>{_n(c['logical_total_tb']) if c.get('logical_total_tb') is not None else NA}</p>",
+        f"<p>{escape(drr)}</p>",
+        f"<p>{_t(LICENSE_LABEL.get(c.get('license_status') or ''))}</p>",
+        f"<p>{escape(end.strftime('%Y-%m-%d')) if end else NA}</p>",
+        f"<p>{_t(compact_addresses(c.get('vms_ip') or ''))}</p>",
+        _lines((c.get("remark") or "").splitlines()),
+    ]
+    return "<tr>" + "".join(f"<td>{x}</td>" for x in cells) + "</tr>"
+
+
+OVERVIEW_FOOTER = (
+    "<p />"
+    '<ac:structured-macro ac:name="info" ac:schema-version="1">'
+    "<ac:rich-text-body><p>이 페이지는 "
+    "<strong>VAST 고객사 사용현황 포털</strong>이 통째로 생성합니다. "
+    "위키에서 직접 고치거나 적은 내용은 다음 발행 때 사라집니다. "
+    "표의 값은 포털에서, 메모는 클러스터의 <strong>비고</strong> 또는 "
+    "<strong>고객사 메모</strong>에 적으세요.</p>"
+    "</ac:rich-text-body></ac:structured-macro>"
+)
+
+
+def overview_build(clusters: list[dict], memos: list[dict]) -> str:
+    """전체 현황 페이지 본문.
+
+    구성: 표 → 목차(Page Tree) → 고객사 메모 → 안내
+    기존 페이지의 순서를 그대로 따른다.
+    """
+    cols = "".join(f'<col style="width: {w}px;" />' for _, w in OVERVIEW_COLS)
+    head = "".join(
+        f'<th><p style="text-align: center"><strong>{escape(h)}</strong></p></th>'
+        for h, _ in OVERVIEW_COLS
+    )
+    body = ("".join(_overview_row(c) for c in clusters) if clusters else
+            "<tr>" + "".join(f"<td><p>{NA}</p></td>" for _ in OVERVIEW_COLS) + "</tr>")
+
+    out = [
+        f'<table data-layout="{TABLE_LAYOUT}" data-width="{OVERVIEW_WIDTH}">'
+        f"<colgroup>{cols}</colgroup>"
+        f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>",
+        "<p />",
+        "<p><strong>목차</strong></p>",
+        # root=@self 로 두면 '이 페이지 아래' 를 그린다. 페이지 제목을 쓰지 않아
+        # 제목이 바뀌어도 매크로가 깨지지 않는다.
+        '<ac:structured-macro ac:name="pagetree" ac:schema-version="1">'
+        '<ac:parameter ac:name="root">@self</ac:parameter>'
+        '<ac:parameter ac:name="startDepth">1</ac:parameter>'
+        '<ac:parameter ac:name="expandCollapseAll">true</ac:parameter>'
+        "</ac:structured-macro>",
+    ]
+
+    if memos:
+        out.append("<p />")
+        out.append("<p><strong>고객사 메모</strong></p>")
+        out.append("<ul>" + "".join(
+            f"<li><p><strong>{_t(m.get('name'))}</strong> &#8212; {_t(m.get('remark'))}</p></li>"
+            for m in memos
+        ) + "</ul>")
+
+    out.append(OVERVIEW_FOOTER)
+    return "".join(out)
+
+
+_TBODY = re.compile(r"<tbody[^>]*>(.*?)</tbody>", re.I | re.S)
+
+
+def count_table_rows(storage: str) -> int:
+    """위키 현재 본문의 첫 표에 있는 데이터 행 수.
+
+    통째로 덮어쓰기 전에 '몇 행이 사라지는가' 를 보여주기 위한 값이다.
+    머리글을 세지 않도록 tbody 안의 tr 만 센다. 표가 없으면 0.
+    정밀한 파싱이 목적이 아니라 사람이 멈출 근거를 주는 것이 목적이다.
+    """
+    m = _TBODY.search(storage or "")
+    if not m:
+        return 0
+    return len(re.findall(r"<tr\b", m.group(1), re.I))

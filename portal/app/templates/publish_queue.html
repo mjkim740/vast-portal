@@ -5,6 +5,18 @@
 <h1>위키 발행</h1>
 <p class="lede">DB 가 원본이고 위키는 출력물입니다. 값을 고친 뒤 발행하지 않으면 위키가 뒤처집니다.</p>
 
+<section>
+  <div class="sechead">
+    <h2>전체 현황 페이지</h2>
+    <a class="btn-sm" href="/publish/overview">미리보기 · 발행</a>
+  </div>
+  <p class="hint">
+    클러스터 전부를 한 표로 만들어 <code>[VAST Data] 고객사 사용현황</code> 페이지를
+    통째로 교체합니다. 포털에 없는 고객사 행은 사라지므로, 발행 화면에서
+    <b>몇 행이 줄어드는지</b> 먼저 확인하세요. 이관 중이라면 소스만 복사해 쓰셔도 됩니다.
+  </p>
+</section>
+
 {% if not configured %}
 <div class="note warnbox">
   <b>API 인증이 설정되지 않았습니다.</b>

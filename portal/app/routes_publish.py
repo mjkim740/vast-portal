@@ -265,3 +265,148 @@ def confluence_check():
         "account": me.get("email") or me.get("username"),
         "display_name": me.get("displayName"),
     }
+
+
+# ===================================================================== 전체 현황
+#
+# 클러스터별 페이지와 달리 이 페이지는 '한 장에 전부' 다. 그래서 다르게 다룬다.
+#
+#   대상 페이지가 고정이다        클러스터처럼 새로 만들지 않는다. 이미 있는
+#                                 페이지(PARENT)를 갱신한다.
+#   통째로 교체한다               포털에 없는 고객사의 행은 사라진다. 이관이
+#                                 끝나기 전에는 이게 사고가 되므로, 지금 위키에
+#                                 몇 행이 있는지 읽어와 비교해서 보여준다.
+#   줄어들 때만 확인을 받는다     행이 줄지 않는 발행은 버튼 한 번이면 된다.
+#                                 줄어들 때만 OVERWRITE 를 입력하게 한다.
+
+OVERVIEW_SQL = """
+SELECT b.cluster_id, b.customer_name, b.cluster_name, b.psnt, b.status,
+       b.cluster_detail, b.vast_sw_release,
+       b.usable_total_tb, b.logical_total_tb,
+       b.drr, b.drr_status, b.last_update, b.days_since_update,
+       c.remark, c.confluence_page_id,
+       ls.license_status, ls.end_date AS license_end,
+       (SELECT n.addresses FROM v_network_label n
+         WHERE n.cluster_id = b.cluster_id AND n.wiki_label = :ip_label
+         LIMIT 1) AS vms_ip
+FROM v_cluster_basic b
+JOIN cluster c ON c.id = b.cluster_id
+LEFT JOIN license lc ON lc.cluster_id = b.cluster_id
+  AND lc.id = (SELECT l2.id FROM license l2
+                WHERE l2.cluster_id = b.cluster_id
+                ORDER BY (l2.end_date IS NULL), l2.end_date DESC, l2.id DESC
+                LIMIT 1)
+LEFT JOIN v_license_status ls ON ls.id = lc.id
+WHERE b.status <> 'DECOMM'
+ORDER BY b.customer_name, b.cluster_name
+"""
+
+# 고객사 단위 메모. 클러스터가 아직 없는 고객사도 나와야 하므로 customer 에서 뽑는다.
+MEMO_SQL = """
+SELECT name, remark FROM customer
+WHERE status = 'ACTIVE' AND remark IS NOT NULL AND TRIM(remark) <> ''
+ORDER BY name
+"""
+
+
+def _overview(db: Session) -> tuple[list[dict], list[dict], str]:
+    clusters = rows(db, OVERVIEW_SQL, ip_label=page_body.OVERVIEW_IP_LABEL)
+    memos = rows(db, MEMO_SQL)
+    return clusters, memos, page_body.overview_build(clusters, memos)
+
+
+def _wiki_state(page_id: str) -> dict:
+    """대상 페이지의 현재 상태. 읽기 실패는 발행을 막지 않고 알리기만 한다."""
+    if not page_id:
+        return {"error": "대상 페이지가 지정되지 않았습니다. "
+                         "CONFLUENCE_PARENT_ID 또는 CONFLUENCE_OVERVIEW_ID 를 확인하세요."}
+    if not confluence.configured():
+        return {"error": "Confluence 인증 정보가 없습니다."}
+    try:
+        cur = confluence.get_page(page_id)
+        body = confluence.get_page_body(page_id)
+    except confluence.ConfluenceError as e:
+        return {"error": str(e)}
+    return {
+        "id": cur["id"], "title": cur["title"], "url": cur["url"],
+        "version": cur["version"], "status": cur["status"],
+        "rows": page_body.count_table_rows(body),
+    }
+
+
+def _overview_log(db: Session, status: str, who: str | None,
+                  page_id: str | None = None, version: int | None = None,
+                  message: str | None = None) -> None:
+    """cluster_id 가 NULL 인 발행 기록. 전체 현황 발행이라는 뜻이다."""
+    run(db, """
+        INSERT INTO publish_log
+          (cluster_id, page_id, page_version, status, message, published_by)
+        VALUES (NULL, :p, :v, :s, :m, :w)
+    """, p=page_id, v=version, s=status,
+         m=(message or "")[:2000] or None, w=who)
+
+
+@router.get("/publish/overview", response_class=HTMLResponse)
+def overview_preview(request: Request, db: Session = Depends(get_db)):
+    from .main import templates
+
+    clusters, memos, body = _overview(db)
+    target = confluence.overview_page_id()
+    wiki = _wiki_state(target)
+
+    return templates.TemplateResponse(request=request, name="publish_overview.html",
+        context={
+            "clusters": clusters,
+            "memos": memos,
+            "body": body,
+            "wiki": wiki,
+            "target": target,
+            "configured": confluence.configured(),
+            "base_url": confluence.BASE_URL,
+            "ip_label": page_body.OVERVIEW_IP_LABEL,
+            "cols": [h for h, _ in page_body.OVERVIEW_COLS],
+            "history": rows(db, """
+                SELECT published_at, page_id, page_version, status, message, published_by
+                FROM publish_log WHERE cluster_id IS NULL
+                ORDER BY id DESC LIMIT 10
+            """),
+        })
+
+
+@router.post("/publish/overview")
+def overview_publish(db: Session = Depends(get_db),
+                     published_by: str = Form(""), note: str = Form(""),
+                     confirm: str = Form("")):
+    clusters, _memos, body = _overview(db)
+    who = (published_by or "").strip() or None
+    target = confluence.overview_page_id()
+    wiki = _wiki_state(target)
+
+    if wiki.get("error"):
+        _overview_log(db, "FAILED", who, page_id=target or None,
+                      message=f"대상 페이지를 읽을 수 없습니다: {wiki['error']}")
+        db.commit()
+        return RedirectResponse("/publish/overview?err=1", status_code=303)
+
+    # 행이 줄어드는 발행만 확인 문구를 받는다. 이관이 끝나 행 수가 안정되면
+    # 매번 타이핑할 이유가 없다 — 위험한 경우에만 손이 가게 한다.
+    losing = wiki["rows"] - len(clusters)
+    if losing > 0 and confirm.strip().upper() != "OVERWRITE":
+        return RedirectResponse(
+            f"/publish/overview?needconfirm={losing}", status_code=303)
+
+    try:
+        result = confluence.update_page(
+            wiki["id"], wiki["title"], body, wiki["version"],
+            note=(note or "").strip() or "포털에서 전체 현황 발행",
+        )
+    except confluence.ConfluenceError as e:
+        _overview_log(db, "FAILED", who, page_id=wiki["id"], message=str(e))
+        db.commit()
+        return RedirectResponse("/publish/overview?err=1", status_code=303)
+
+    _overview_log(db, "OK", who, page_id=result["id"], version=result["version"],
+                  message=f"{len(clusters)}행 발행"
+                          + (f" (이전 {wiki['rows']}행)" if wiki["rows"] else ""))
+    db.commit()
+    return RedirectResponse("/publish/overview?ok=1", status_code=303)

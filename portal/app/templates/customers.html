@@ -5,7 +5,7 @@
 <h1>고객사</h1>
 <p class="lede">
   고객사는 클러스터를 저장할 때 자동으로 만들어집니다. 그래서 여기에 추가는 없고,
-  잘못 생긴 이름을 고치거나 치우는 일만 합니다.
+  잘못 생긴 이름을 고치거나 치우고, 메모를 남깁니다.
 </p>
 
 {% set p = request.query_params %}
@@ -21,6 +21,8 @@
   <p>이미 발행한 위키 페이지의 <b>제목은 바뀌지 않습니다.</b>
      제목에 고객사명이 들어간 클러스터는 <a href="/publish">위키 발행</a>에서 다시 발행하세요.</p>
 </div>
+{% elif p.get('saved') %}
+<div class="note"><b>{{ p.get('saved') }}</b> 저장했습니다.</div>
 {% elif p.get('err') == 'inuse' %}
 <div class="note warnbox">
   <b>{{ p.get('name') }}</b> 는 클러스터가 있어 삭제할 수 없습니다.
@@ -39,15 +41,20 @@
 
 <table class="grid">
   <thead><tr>
-    <th style="width:28%">고객사</th>
-    <th class="num" style="width:10%">클러스터</th>
-    <th>이름 수정</th>
-    <th style="width:6%"></th>
+    <th style="width:22%">고객사</th>
+    <th class="num" style="width:9%">클러스터</th>
+    <th>메모</th>
+    <th style="width:14%"></th>
   </tr></thead>
   <tbody>
     {% for cu in customers %}
+    {# 한 행이 한 폼이다. form 속성으로 칸을 건너 묶는다 —
+       <tr> 을 <form> 으로 감싸는 건 올바른 HTML 이 아니다. #}
     <tr>
-      <td>{{ cu.name }}</td>
+      <td>
+        <input type="text" name="name" form="cf{{ cu.id }}" required
+               value="{{ cu.name }}" aria-label="{{ cu.name }} 이름">
+      </td>
       <td class="num mono">
         {% if cu.clusters %}
           <a href="/?q={{ cu.name|urlencode }}" title="이 고객사의 클러스터 보기">{{ cu.clusters }}</a>
@@ -56,13 +63,13 @@
         {% endif %}
       </td>
       <td>
-        <form method="post" action="/customers/{{ cu.id }}/rename" class="inlineform">
-          <input type="text" name="name" value="{{ cu.name }}" required
-                 aria-label="{{ cu.name }} 이름 수정">
-          <button type="submit" class="btn-sm">저장</button>
-        </form>
+        <input type="text" name="remark" form="cf{{ cu.id }}" maxlength="500"
+               value="{{ cu.remark or '' }}" aria-label="{{ cu.name }} 메모"
+               placeholder="예: 파트너사 → 총판사 변경으로 Support X">
       </td>
       <td class="rowacts">
+        <form id="cf{{ cu.id }}" method="post" action="/customers/{{ cu.id }}/update"></form>
+        <button type="submit" form="cf{{ cu.id }}" class="btn-sm">저장</button>
         {% if cu.clusters %}
           <button type="button" class="btn-del" disabled
                   title="클러스터 {{ cu.clusters }}건이 있어 삭제할 수 없습니다">&times;</button>
@@ -82,6 +89,12 @@
   <b>이름 수정</b>은 클러스터가 붙어 있어도 안전합니다. 클러스터는 이름이 아니라
   내부 번호로 연결돼 있어서, 이름만 바뀌고 연결은 그대로입니다.
   오타로 등록한 고객사명을 바로잡는 통로입니다.
+</p>
+<p class="hint">
+  <b>메모</b>는 <a href="/publish/overview">전체 현황</a> 페이지의 표 아래에
+  함께 발행됩니다. 그 페이지는 포털이 통째로 만들기 때문에, 위키에서 직접 적은
+  메모는 다음 발행 때 사라집니다. 남아야 하는 내용은 여기에 적으세요.
+  클러스터 하나에 관한 내용이면 클러스터 수정 화면의 <b>비고</b>가 맞습니다.
 </p>
 <p class="hint">
   <b>삭제(×)</b>는 클러스터가 0건일 때만 됩니다. 클러스터를 다른 고객사로 옮기면

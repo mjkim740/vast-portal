@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}전체 현황 발행{% endblock %}
+{% block content %}
+
+<div class="crumb"><a href="/publish">위키 발행</a> / 전체 현황</div>
+<h1>전체 현황 발행</h1>
+<p class="lede">
+  포털에 등록된 클러스터 전부를 한 표로 만들어 위키의 현황 페이지를 통째로 교체합니다.
+</p>
+
+{% set losing = (wiki.rows or 0) - (clusters | length) %}
+
+{% if request.query_params.get('ok') %}
+<div class="note" style="border-color:var(--accent)">
+  <b>발행했습니다.</b>
+  {% if wiki.url %}<a href="{{ wiki.url }}" target="_blank" rel="noopener">위키에서 열기 →</a>{% endif %}
+</div>
+{% endif %}
+{% if request.query_params.get('err') %}
+<div class="note warnbox">
+  <b>발행에 실패했습니다.</b>
+  <p>아래 발행 이력의 마지막 줄에 사유가 있습니다.</p>
+</div>
+{% endif %}
+{% if request.query_params.get('needconfirm') %}
+<div class="note warnbox">
+  <b>확인 문구가 필요합니다.</b>
+  <p>행이 {{ request.query_params.get('needconfirm') }}개 줄어드는 발행입니다.
+     아래 입력란에 <code>OVERWRITE</code> 를 넣고 다시 누르세요.</p>
+</div>
+{% endif %}
+
+<section>
+  <h2>대상</h2>
+  {% if wiki.error %}
+  <div class="note warnbox">
+    <b>대상 페이지를 읽을 수 없습니다.</b>
+    <p class="mono">{{ wiki.error }}</p>
+    <p>미리보기와 소스 복사는 그대로 됩니다. 발행만 막혀 있습니다.</p>
+  </div>
+  {% else %}
+  <dl class="kv">
+    <dt>페이지</dt>
+    <dd>{{ wiki.title }}
+      <a href="{{ wiki.url }}" target="_blank" rel="noopener">열기 →</a>
+      <span class="dim mono">{{ wiki.id }} · v{{ wiki.version }}</span>
+    </dd>
+    <dt>IP 열에 넣는 행</dt>
+    <dd class="mono dim">{{ ip_label }}</dd>
+    <dt>열 구성</dt>
+    <dd class="dim">{{ cols | join(' · ') }}</dd>
+  </dl>
+  {% endif %}
+</section>
+
+{% if not wiki.error %}
+<section>
+  <h2>바뀌는 양</h2>
+  <table class="grid tight" style="max-width:520px">
+    <tbody>
+      <tr><td>위키 현재 행</td><td class="num mono">{{ wiki.rows }}</td></tr>
+      <tr><td>포털 등록 클러스터</td><td class="num mono">{{ clusters | length }}</td></tr>
+      <tr class="{% if losing > 0 %}row-warn{% endif %}">
+        <td><b>차이</b></td>
+        <td class="num mono {% if losing > 0 %}warn{% endif %}">
+          {% if losing > 0 %}-{{ losing }}
+          {% elif losing < 0 %}+{{ -losing }}
+          {% else %}0{% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  {% if losing > 0 %}
+  <div class="note warnbox">
+    <b>{{ losing }}행이 사라집니다.</b>
+    <p>위키에는 포털에 아직 등록되지 않은 고객사 행이 남아 있습니다. 값이 비어 있어도
+       <b>'이 고객사가 있다'</b> 는 정보는 들어 있습니다. 이관이 끝나기 전이라면
+       발행하지 말고 아래 소스를 복사해서 쓰는 쪽이 안전합니다.</p>
+    <p>그래도 발행하려면 확인 문구를 입력해야 합니다. 되돌릴 일이 생기면
+       위키 페이지의 <b>버전 기록</b>에서 복원할 수 있습니다.</p>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+<section>
+  <h2>포털에 등록된 메모 <span class="dim">발행하면 표 아래에 함께 나갑니다</span></h2>
+  <p class="hint">
+    이 페이지는 통째로 교체되므로, 위키에서 직접 적은 메모는 발행 때 사라집니다.
+    남아야 하는 메모는 포털에 있어야 합니다 — 클러스터 하나에 관한 내용은
+    <b>비고</b>(클러스터 수정 화면), 고객사 전체에 관한 내용은
+    <a href="/customers">고객사</a> 화면의 <b>메모</b>입니다.
+    목차(Page Tree)는 포털이 다시 만들어 넣으므로 따로 챙기지 않아도 됩니다.
+  </p>
+  {% if memos %}
+  <table class="grid tight">
+    <thead><tr><th style="width:24%">고객사</th><th>메모</th></tr></thead>
+    <tbody>
+      {% for m in memos %}
+      <tr><td>{{ m.name }}</td><td class="dim">{{ m.remark }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">등록된 고객사 메모가 없습니다.
+    <a href="/customers">고객사 화면에서 입력</a>하면 표 아래에 함께 발행됩니다.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>미리보기 <span class="dim">위키에 들어갈 모양</span></h2>
+  <div class="wikiprev">{{ body | safe }}</div>
+</section>
+
+<section>
+  <h2>생성된 원본 <span class="dim">storage 형식</span></h2>
+  <p class="hint">
+    발행하지 않고 쓰려면 이 값을 복사해 위키 편집기의 <code>&lt;/&gt;</code> 소스 보기에
+    붙여 넣으세요. 어디에 붙일지 사람이 정하므로 기존 내용이 지워지지 않습니다.
+  </p>
+  <textarea class="srcbox" rows="10" readonly onclick="this.select()">{{ body }}</textarea>
+</section>
+
+<form method="post" action="/publish/overview">
+  <div class="formbar">
+    <label class="byline">발행자
+      <input type="text" name="published_by" placeholder="이름" maxlength="50">
+    </label>
+    <label class="byline" style="width:260px">버전 메모
+      <input type="text" name="note" placeholder="포털에서 전체 현황 발행" maxlength="200">
+    </label>
+    {% if losing > 0 %}
+    <label class="byline" style="width:200px">확인 문구 <span class="req">필수</span>
+      <input type="text" name="confirm" placeholder="OVERWRITE" autocomplete="off">
+    </label>
+    {% endif %}
+    <button type="submit" {% if not configured or wiki.error %}disabled{% endif %}>
+      위키 통째로 교체
+    </button>
+    <a class="cancel" href="/publish">취소</a>
+  </div>
+</form>
+
+<section style="margin-top:28px">
+  <h2>발행 이력 <span class="dim">전체 현황만</span></h2>
+  <table class="grid tight">
+    <thead><tr><th>시각</th><th>상태</th><th>페이지</th><th class="num">버전</th>
+               <th>발행자</th><th>메시지</th></tr></thead>
+    <tbody>
+      {% for h in history %}
+      <tr class="{% if h.status == 'FAILED' %}row-warn{% endif %}">
+        <td class="mono dim">{{ h.published_at }}</td>
+        <td class="{% if h.status == 'FAILED' %}warn{% else %}dim{% endif %}">{{ h.status }}</td>
+        <td class="mono dim">{{ h.page_id or '—' }}</td>
+        <td class="num mono">{{ h.page_version or '—' }}</td>
+        <td>{{ h.published_by or '—' }}</td>
+        <td class="dim">{{ h.message or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">발행 이력이 없습니다.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

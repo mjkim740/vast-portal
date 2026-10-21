@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # 이미지 태그만으로는 알 수 없다 — 같은 태그로 덮어 빌드하거나, 예전 소스로
 # 새 태그를 빌드하면 태그와 내용이 어긋난다. 실제로 그 때문에 한 번 헤맸다.
 #   확인: curl -s http://<호스트>/healthz
-APP_VERSION = "2026-10-20.3"   # + 고객사 자동완성·정리, 펌웨어 Model
+APP_VERSION = "2026-10-20.4"   # + 전체 현황 발행, 고객사 메모
 
 app = FastAPI(title="VAST 고객사 사용현황",
               docs_url="/api/docs", openapi_url="/api/openapi.json")
@@ -528,40 +528,54 @@ def model_delete(model_id: int, db: Session = Depends(get_db)):
 def customers_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request=request, name="customers.html", context={
         "customers": rows(db, """
-            SELECT cu.id, cu.name, cu.status,
+            SELECT cu.id, cu.name, cu.status, cu.remark,
                    (SELECT COUNT(*) FROM cluster c WHERE c.customer_id = cu.id) AS clusters
             FROM customer cu ORDER BY cu.name
         """),
     })
 
 
-@app.post("/customers/{customer_id}/rename")
-def customer_rename(customer_id: int, name: str = Form(...),
+@app.post("/customers/{customer_id}/update")
+def customer_update(customer_id: int, name: str = Form(...), remark: str = Form(""),
                     db: Session = Depends(get_db)):
-    """고객사명을 고친다.
+    """고객사명과 메모를 고친다.
 
-    클러스터가 붙어 있어도 안전하다. 클러스터는 customer_id 로 연결돼 있어서
-    이름만 바뀌고 연결은 그대로다. 발행된 위키 페이지의 제목은 자동으로 바뀌지
-    않으므로, 제목에 고객사명이 들어간 클러스터는 다시 발행해야 한다.
+    이름 변경은 클러스터가 붙어 있어도 안전하다. 클러스터는 customer_id 로
+    연결돼 있어서 이름만 바뀌고 연결은 그대로다. 다만 발행된 위키 페이지의
+    제목은 자동으로 바뀌지 않으므로, 제목에 고객사명이 들어간 클러스터는
+    다시 발행해야 한다.
+
+    메모는 전체 현황 페이지의 표 아래 '고객사 메모' 로 나간다. 그 페이지는
+    통째로 덮어쓰기라, 위키에 손으로 적은 메모는 다음 발행 때 사라진다.
+    남아야 하는 메모가 들어올 자리가 여기다 — 특히 포털에 아직 클러스터가
+    없는 고객사는 표에 행이 없어서 이 메모가 유일한 통로다.
     """
-    new = name.strip()
-    old = scalar(db, "SELECT name FROM customer WHERE id = :i", i=customer_id)
-    if old is None:
+    cur = one(db, "SELECT name, remark FROM customer WHERE id = :i", i=customer_id)
+    if not cur:
         raise HTTPException(404, "고객사를 찾을 수 없습니다")
+
+    new = name.strip()
+    memo = remark.strip() or None
     if not new:
         return RedirectResponse("/customers?err=empty", status_code=303)
-    if new == old:
-        return RedirectResponse("/customers", status_code=303)
 
-    # uk_customer_name 이 막아주지만, 500 대신 이유를 보여준다.
-    if scalar(db, "SELECT id FROM customer WHERE name = :n AND id <> :i",
-              n=new, i=customer_id):
+    renamed = new != cur["name"]
+    if renamed and scalar(db, "SELECT id FROM customer WHERE name = :n AND id <> :i",
+                          n=new, i=customer_id):
+        # uk_customer_name 이 막아주지만, 500 대신 이유를 보여준다.
         return RedirectResponse(f"/customers?err=dup&name={quote(new)}", status_code=303)
 
-    run(db, "UPDATE customer SET name = :n WHERE id = :i", n=new, i=customer_id)
+    if not renamed and memo == (cur["remark"] or None):
+        return RedirectResponse("/customers", status_code=303)
+
+    run(db, "UPDATE customer SET name = :n, remark = :r WHERE id = :i",
+        n=new, r=memo, i=customer_id)
     db.commit()
-    return RedirectResponse(
-        f"/customers?renamed={quote(old)}&to={quote(new)}", status_code=303)
+
+    if renamed:
+        return RedirectResponse(
+            f"/customers?renamed={quote(cur['name'])}&to={quote(new)}", status_code=303)
+    return RedirectResponse(f"/customers?saved={quote(new)}", status_code=303)
 
 
 @app.post("/customers/{customer_id}/delete")

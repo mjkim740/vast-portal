@@ -23,6 +23,18 @@ TOKEN    = os.getenv("CONFLUENCE_TOKEN", "")
 PARENT   = os.getenv("CONFLUENCE_PARENT_ID", "")   # 없으면 스페이스 최상단
 TIMEOUT  = float(os.getenv("CONFLUENCE_TIMEOUT", "20"))
 
+# 전체 현황 표를 발행할 페이지. 비우면 PARENT 를 쓴다.
+#   클러스터별 페이지가 이미 PARENT 의 자식으로 붙어 있고, 그 부모 페이지가
+#   바로 '[VAST Data] 고객사 사용현황' 이다. 따로 지정할 일이 거의 없어서
+#   기본값을 PARENT 로 두고, 다른 페이지로 돌릴 때만 이 변수를 쓴다.
+#   (덕분에 portal.yaml 을 고치지 않아도 동작한다 — apply 하면서 이미지 태그가
+#    파일에 적힌 옛 값으로 되돌아가는 사고를 피한다.)
+OVERVIEW_ID = os.getenv("CONFLUENCE_OVERVIEW_ID", "")
+
+
+def overview_page_id() -> str:
+    return (OVERVIEW_ID or PARENT or "").strip()
+
 
 class ConfluenceError(Exception):
     """발행 실패. message 가 그대로 publish_log.message 에 들어간다."""
@@ -139,6 +151,18 @@ def get_page(page_id: str) -> dict:
         "version": int((d.get("version") or {}).get("number") or 1),
         "url":     page_url(d),
     }
+
+
+def get_page_body(page_id: str) -> str:
+    """현재 본문을 storage 형식으로 읽는다.
+
+    덮어쓰기 전에 '위키에 지금 몇 행이 있는가' 를 세는 데 쓴다. 전체 현황
+    페이지는 통째로 교체하므로, 포털에 등록되지 않은 행이 몇 개 사라지는지
+    사람이 보고 판단해야 한다.
+    """
+    d = _call("GET", f"/wiki/api/v2/pages/{page_id}",
+              params={"body-format": "storage"})
+    return (((d.get("body") or {}).get("storage") or {}).get("value")) or ""
 
 
 def page_url(d: dict) -> str:
