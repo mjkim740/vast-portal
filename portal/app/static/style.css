@@ -410,6 +410,7 @@ button:hover { filter: brightness(1.1); }
 }
 .ac-note.new b { color: var(--warn); }
 
-/* 표 안의 한 줄 폼(고객사 이름 수정)은 아래 여백이 필요 없다 */
+/* 표 안에서 바로 고치는 칸(고객사 이름·메모). 행 높이가 늘지 않게 줄인다. */
 .grid .inlineform { margin: 0; }
-.grid .inlineform input { width: 100%; max-width: 280px; }
+.grid input[type=text] { width: 100%; font-size: 13px; padding: 5px 7px; }
+.grid .rowacts form { display: inline; }
