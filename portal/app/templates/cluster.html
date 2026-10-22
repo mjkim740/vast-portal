@@ -26,15 +26,15 @@
     <dt>Usable (T/U/F/Sys)</dt>
     <dd class="mono">
       {% if basic.usable_total_tb is not none %}
-        {{ basic.usable_total_tb }} / {{ basic.usable_used_tb or '—' }} /
-        {{ basic.usable_free_tb or '—' }} /
-        <span class="dim">{{ basic.usable_system_tb or '—' }}</span>
+        {{ basic.usable_total_tb | num }} / {{ basic.usable_used_tb | num or '—' }} /
+        {{ basic.usable_free_tb | num or '—' }} /
+        <span class="dim">{{ basic.usable_system_tb | num or '—' }}</span>
       {% else %}—{% endif %}
     </dd>
     <dt>DRR</dt>
     <dd class="mono {% if basic.drr_status == 'BELOW' %}warn{% endif %}">
-      {{ basic.drr or '—' }}
-      {% if basic.guaranteed_drr %}<span class="dim">보장 {{ basic.guaranteed_drr }}</span>{% endif %}
+      {{ basic.drr | num or '—' }}
+      {% if basic.guaranteed_drr %}<span class="dim">보장 {{ basic.guaranteed_drr | num }}</span>{% endif %}
     </dd>
   </dl>
 </section>
@@ -150,7 +150,7 @@
         <td class="num mono">{{ l.term_months or '—' }}{% if l.term_months %}개월{% endif %}</td>
         <td class="mono dim">{{ l.start_date or '—' }}</td>
         <td class="mono">{{ l.end_date or '—' }}</td>
-        <td class="num mono">{{ l.capacity_tb or '—' }}</td>
+        <td class="num mono">{{ l.capacity_tb | num or '—' }}</td>
         <td class="mono dim">{{ l.contract_no or '—' }}</td>
         <td class="{% if l.license_status in ('EXPIRED','EXPIRING') %}warn{% else %}dim{% endif %}">
           {{ l.license_status or 'UNKNOWN' }}
@@ -202,11 +202,11 @@
       <tr>
         <td class="mono">{{ s.measured_at }}</td>
         <td class="mono dim">{{ s.release_at_time or '—' }}</td>
-        <td class="num mono">{{ s.usable_total_tb or '—' }}</td>
-        <td class="num mono">{{ s.usable_used_tb or '—' }}</td>
-        <td class="num mono">{{ s.usable_free_tb or '—' }}</td>
-        <td class="num mono dim">{{ s.usable_system_tb if s.usable_system_tb is not none else '—' }}</td>
-        <td class="num mono">{{ s.drr or '—' }}</td>
+        <td class="num mono">{{ s.usable_total_tb | num or '—' }}</td>
+        <td class="num mono">{{ s.usable_used_tb | num or '—' }}</td>
+        <td class="num mono">{{ s.usable_free_tb | num or '—' }}</td>
+        <td class="num mono dim">{{ s.usable_system_tb | num if s.usable_system_tb is not none else '—' }}</td>
+        <td class="num mono">{{ s.drr | num or '—' }}</td>
         <td class="dim">{{ s.source }}{% if s.updated_by %} · {{ s.updated_by }}{% endif %}</td>
       </tr>
       {% else %}

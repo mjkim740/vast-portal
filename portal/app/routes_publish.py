@@ -273,30 +273,22 @@ def confluence_check():
 #
 #   대상 페이지가 고정이다        클러스터처럼 새로 만들지 않는다. 이미 있는
 #                                 페이지(PARENT)를 갱신한다.
-#   통째로 교체한다               포털에 없는 고객사의 행은 사라진다. 이관이
-#                                 끝나기 전에는 이게 사고가 되므로, 지금 위키에
+#   통째로 교체한다               포털에 없는 고객사의 행은 사라진다. 지금 위키에
 #                                 몇 행이 있는지 읽어와 비교해서 보여준다.
 #   줄어들 때만 확인을 받는다     행이 줄지 않는 발행은 버튼 한 번이면 된다.
 #                                 줄어들 때만 OVERWRITE 를 입력하게 한다.
+#
+# 쿼리는 포털 목록(main.LIST_SQL)과 같은 뷰·같은 열을 쓴다. 위키 표를 포털
+# 목록과 같게 맞췄으므로, 두 화면이 다른 값을 보일 여지를 남기지 않는다.
 
 OVERVIEW_SQL = """
 SELECT b.cluster_id, b.customer_name, b.cluster_name, b.psnt, b.status,
-       b.cluster_detail, b.vast_sw_release,
-       b.usable_total_tb, b.logical_total_tb,
+       b.cluster_size, b.cluster_detail, b.vast_sw_release,
+       b.usable_total_tb, b.used_pct,
        b.drr, b.drr_status, b.last_update, b.days_since_update,
-       c.remark, c.confluence_page_id,
-       ls.license_status, ls.end_date AS license_end,
-       (SELECT n.addresses FROM v_network_label n
-         WHERE n.cluster_id = b.cluster_id AND n.wiki_label = :ip_label
-         LIMIT 1) AS vms_ip
+       c.remark, c.confluence_page_id
 FROM v_cluster_basic b
 JOIN cluster c ON c.id = b.cluster_id
-LEFT JOIN license lc ON lc.cluster_id = b.cluster_id
-  AND lc.id = (SELECT l2.id FROM license l2
-                WHERE l2.cluster_id = b.cluster_id
-                ORDER BY (l2.end_date IS NULL), l2.end_date DESC, l2.id DESC
-                LIMIT 1)
-LEFT JOIN v_license_status ls ON ls.id = lc.id
 WHERE b.status <> 'DECOMM'
 ORDER BY b.customer_name, b.cluster_name
 """
@@ -309,10 +301,10 @@ ORDER BY name
 """
 
 
-def _overview(db: Session, level: int) -> tuple[list[dict], list[dict], str]:
-    clusters = rows(db, OVERVIEW_SQL, ip_label=page_body.OVERVIEW_IP_LABEL)
+def _overview(db: Session) -> tuple[list[dict], list[dict], str]:
+    clusters = rows(db, OVERVIEW_SQL)
     memos = rows(db, MEMO_SQL)
-    return clusters, memos, page_body.overview_build(clusters, memos, level)
+    return clusters, memos, page_body.overview_build(clusters, memos)
 
 
 def _wiki_state(page_id: str) -> dict:
@@ -347,12 +339,10 @@ def _overview_log(db: Session, status: str, who: str | None,
 
 
 @router.get("/publish/overview", response_class=HTMLResponse)
-def overview_preview(request: Request, db: Session = Depends(get_db),
-                     level: int = page_body.OVERVIEW_LEVEL_MAX):
+def overview_preview(request: Request, db: Session = Depends(get_db)):
     from .main import templates
 
-    level = max(1, min(level, page_body.OVERVIEW_LEVEL_MAX))
-    clusters, memos, body = _overview(db, level)
+    clusters, memos, body = _overview(db)
     target = confluence.overview_page_id()
     wiki = _wiki_state(target)
 
@@ -361,13 +351,10 @@ def overview_preview(request: Request, db: Session = Depends(get_db),
             "clusters": clusters,
             "memos": memos,
             "body": body,
-            "level": level,
-            "level_max": page_body.OVERVIEW_LEVEL_MAX,
             "wiki": wiki,
             "target": target,
             "configured": confluence.configured(),
             "base_url": confluence.BASE_URL,
-            "ip_label": page_body.OVERVIEW_IP_LABEL,
             "cols": [h for h, _ in page_body.OVERVIEW_COLS],
             "history": rows(db, """
                 SELECT published_at, page_id, page_version, status, message, published_by
@@ -380,43 +367,37 @@ def overview_preview(request: Request, db: Session = Depends(get_db),
 @router.post("/publish/overview")
 def overview_publish(db: Session = Depends(get_db),
                      published_by: str = Form(""), note: str = Form(""),
-                     confirm: str = Form(""),
-                     level: int = Form(page_body.OVERVIEW_LEVEL_MAX)):
-    level = max(1, min(level, page_body.OVERVIEW_LEVEL_MAX))
-    clusters, _memos, body = _overview(db, level)
+                     confirm: str = Form("")):
+    clusters, _memos, body = _overview(db)
     who = (published_by or "").strip() or None
     target = confluence.overview_page_id()
     wiki = _wiki_state(target)
 
-    # 어느 단계로 발행했는지 기록에 남긴다. 500 처럼 사유를 알 수 없는 실패는
-    # '몇 단계에서 깨졌나' 가 유일한 단서다.
-    tag = f"[L{level}] "
-
     if wiki.get("error"):
         _overview_log(db, "FAILED", who, page_id=target or None,
-                      message=f"{tag}대상 페이지를 읽을 수 없습니다: {wiki['error']}")
+                      message=f"대상 페이지를 읽을 수 없습니다: {wiki['error']}")
         db.commit()
-        return RedirectResponse(f"/publish/overview?err=1&level={level}", status_code=303)
+        return RedirectResponse("/publish/overview?err=1", status_code=303)
 
     # 행이 줄어드는 발행만 확인 문구를 받는다. 이관이 끝나 행 수가 안정되면
     # 매번 타이핑할 이유가 없다 — 위험한 경우에만 손이 가게 한다.
     losing = wiki["rows"] - len(clusters)
     if losing > 0 and confirm.strip().upper() != "OVERWRITE":
         return RedirectResponse(
-            f"/publish/overview?needconfirm={losing}&level={level}", status_code=303)
+            f"/publish/overview?needconfirm={losing}", status_code=303)
 
     try:
         result = confluence.update_page(
             wiki["id"], wiki["title"], body, wiki["version"],
-            note=(note or "").strip() or f"포털에서 전체 현황 발행 (L{level})",
+            note=(note or "").strip() or "포털에서 전체 현황 발행",
         )
     except confluence.ConfluenceError as e:
-        _overview_log(db, "FAILED", who, page_id=wiki["id"], message=f"{tag}{e}")
+        _overview_log(db, "FAILED", who, page_id=wiki["id"], message=str(e))
         db.commit()
-        return RedirectResponse(f"/publish/overview?err=1&level={level}", status_code=303)
+        return RedirectResponse("/publish/overview?err=1", status_code=303)
 
     _overview_log(db, "OK", who, page_id=result["id"], version=result["version"],
-                  message=f"{tag}{len(clusters)}행 발행"
+                  message=f"{len(clusters)}행 발행"
                           + (f" (이전 {wiki['rows']}행)" if wiki["rows"] else ""))
     db.commit()
-    return RedirectResponse(f"/publish/overview?ok=1&level={level}", status_code=303)
+    return RedirectResponse("/publish/overview?ok=1", status_code=303)

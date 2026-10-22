@@ -76,12 +76,12 @@
       <tr>
         <td class="mono">{{ s.measured_at }}</td>
         <td class="mono dim">{{ s.release_at_time or '—' }}</td>
-        <td class="num mono">{{ s.usable_total_tb or '—' }}</td>
-        <td class="num mono">{{ s.usable_used_tb or '—' }}</td>
-        <td class="num mono">{{ s.usable_free_tb or '—' }}</td>
-        <td class="num mono dim">{{ s.usable_system_tb if s.usable_system_tb is not none else '—' }}</td>
-        <td class="num mono">{{ s.logical_total_tb or '—' }}</td>
-        <td class="num mono">{{ s.drr or '—' }}</td>
+        <td class="num mono">{{ s.usable_total_tb | num or '—' }}</td>
+        <td class="num mono">{{ s.usable_used_tb | num or '—' }}</td>
+        <td class="num mono">{{ s.usable_free_tb | num or '—' }}</td>
+        <td class="num mono dim">{{ s.usable_system_tb | num if s.usable_system_tb is not none else '—' }}</td>
+        <td class="num mono">{{ s.logical_total_tb | num or '—' }}</td>
+        <td class="num mono">{{ s.drr | num or '—' }}</td>
         <td class="dim">{{ s.source }}{% if s.updated_by %} · {{ s.updated_by }}{% endif %}</td>
         <td>
           <form method="post" action="/cluster/{{ cluster.id }}/capacity/{{ s.id }}/delete">
