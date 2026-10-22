@@ -25,9 +25,9 @@
       <td class="mono">{{ c.cluster_size or '—' }}</td>
       <td class="mono dim">{{ c.cluster_detail or '—' }}</td>
       <td class="mono">{{ c.vast_sw_release or '—' }}</td>
-      <td class="num mono">{{ c.usable_total_tb or '—' }}</td>
-      <td class="num mono">{% if c.used_pct is not none %}{{ c.used_pct }}%{% else %}—{% endif %}</td>
-      <td class="num mono {% if c.drr_status == 'BELOW' %}warn{% endif %}">{{ c.drr or '—' }}</td>
+      <td class="num mono">{{ c.usable_total_tb | num or '—' }}</td>
+      <td class="num mono">{% if c.used_pct is not none %}{{ c.used_pct | num }}%{% else %}—{% endif %}</td>
+      <td class="num mono {% if c.drr_status == 'BELOW' %}warn{% endif %}">{{ c.drr | num or '—' }}</td>
       {# 마지막 측정일. 경과 일수는 마우스를 올리면 보인다 —
          한눈에 필요한 건 '언제 기준 값인가' 이고, 며칠 지났는지는 색이 말해준다. #}
       <td class="num mono {% if c.days_since_update and c.days_since_update > 180 %}warn{% else %}dim{% endif %}"

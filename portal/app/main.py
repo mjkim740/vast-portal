@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from . import audit
+from . import audit, page_body
 from .db import get_db, one, rows, run, scalar
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # 이미지 태그만으로는 알 수 없다 — 같은 태그로 덮어 빌드하거나, 예전 소스로
 # 새 태그를 빌드하면 태그와 내용이 어긋난다. 실제로 그 때문에 한 번 헤맸다.
 #   확인: curl -s http://<호스트>/healthz
-APP_VERSION = "2026-10-21.2"   # 목차 매크로 교체(pagetree root 가 500 원인)
+APP_VERSION = "2026-10-22.1"   # 전체 현황 열을 포털 목록과 동일하게, 표 폭 확대
 
 app = FastAPI(title="VAST 고객사 사용현황",
               docs_url="/api/docs", openapi_url="/api/openapi.json")
@@ -35,6 +35,10 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 # 모든 화면 머리글에 판 번호를 띄운다. 라우트마다 넘기지 않아도 되게 전역으로 둔다.
 templates.env.globals["app_version"] = APP_VERSION
+# DECIMAL 의 의미 없는 0 을 떼는 필터. 1810.000 → 1810
+#   목록·상세의 용량·DRR 이 DB 자릿수 그대로 나와서 읽기 불편했고, 위키 표와도
+#   값이 달라 보였다(위키는 떼고 있었다). 같은 함수를 양쪽에서 쓴다.
+templates.env.filters["num"] = page_body.trim_number
 
 from . import routes_data, routes_publish   # noqa: E402  (templates 정의 뒤에 와야 한다)
 app.include_router(routes_data.router)

@@ -18,10 +18,8 @@
 {% endif %}
 {% if request.query_params.get('err') %}
 <div class="note warnbox">
-  <b>발행에 실패했습니다.</b> <span class="dim">{{ level }}단계</span>
-  <p>아래 발행 이력의 마지막 줄에 사유가 있습니다.
-     사유가 <code>API 오류 500</code> 처럼 알 수 없는 내용이면
-     <b>단계를 낮춰서</b> 다시 눌러 보세요 — 어느 요소가 거부되는지 좁혀집니다.</p>
+  <b>발행에 실패했습니다.</b>
+  <p>아래 발행 이력의 마지막 줄에 사유가 있습니다.</p>
 </div>
 {% endif %}
 {% if request.query_params.get('needconfirm') %}
@@ -47,8 +45,6 @@
       <a href="{{ wiki.url }}" target="_blank" rel="noopener">열기 →</a>
       <span class="dim mono">{{ wiki.id }} · v{{ wiki.version }}</span>
     </dd>
-    <dt>IP 열에 넣는 행</dt>
-    <dd class="mono dim">{{ ip_label }}</dd>
     <dt>열 구성</dt>
     <dd class="dim">{{ cols | join(' · ') }}</dd>
   </dl>
@@ -87,37 +83,13 @@
 {% endif %}
 
 <section>
-  <h2>발행 단계 <span class="dim">본문에 무엇까지 넣을지</span></h2>
-  <p class="hint">
-    Confluence 가 본문을 거부하면 <code>500</code> 만 돌려주고 어디가 문제인지 알려주지 않습니다.
-    그래서 단계마다 <b>클러스터 페이지에서 검증된 적 없는 요소를 하나씩만</b> 더 씁니다.
-    실패하면 한 단계 낮춰 보세요. 통과하는 가장 높은 단계가 곧 원인을 가리킵니다.
-  </p>
-  <form method="get" action="/publish/overview" class="inlineform">
-    <select name="level" style="width:300px">
-      <option value="1" {% if level == 1 %}selected{% endif %}>1 — 표만 (검증된 구조만)</option>
-      <option value="2" {% if level == 2 %}selected{% endif %}>2 — + 고객사 링크</option>
-      <option value="3" {% if level == 3 %}selected{% endif %}>3 — + 메모 목록 · 안내 패널</option>
-      <option value="4" {% if level == 4 %}selected{% endif %}>4 — + 목차 (children 매크로)</option>
-      <option value="5" {% if level == 5 %}selected{% endif %}>5 — 목차를 Page Tree 매크로로</option>
-    </select>
-    <button type="submit" class="btn-sm">미리보기 바꾸기</button>
-  </form>
-  <p class="hint">
-    지금은 <b>{{ level }}단계</b>입니다. 아래 미리보기와 원본, 그리고 발행 버튼이 모두 이 단계를 따릅니다.
-    5단계까지 통과하면 원래 의도한 모양입니다. 4단계만 통과해도 목차는 나옵니다 — 이 페이지는 하위가 한 겹이라 보이는 결과가 같습니다.
-  </p>
-</section>
-
-<section>
-  <h2>포털에 등록된 메모 <span class="dim">발행하면 표 아래에 함께 나갑니다</span>
-    {% if level < 3 %}<span class="tag">이 단계에서는 발행되지 않음</span>{% endif %}</h2>
+  <h2>포털에 등록된 메모 <span class="dim">발행하면 표 아래에 함께 나갑니다</span></h2>
   <p class="hint">
     이 페이지는 통째로 교체되므로, 위키에서 직접 적은 메모는 발행 때 사라집니다.
     남아야 하는 메모는 포털에 있어야 합니다 — 클러스터 하나에 관한 내용은
     <b>비고</b>(클러스터 수정 화면), 고객사 전체에 관한 내용은
     <a href="/customers">고객사</a> 화면의 <b>메모</b>입니다.
-    목차(Page Tree)는 포털이 다시 만들어 넣으므로 따로 챙기지 않아도 됩니다.
+    목차는 포털이 다시 만들어 넣으므로 따로 챙기지 않아도 됩니다.
   </p>
   {% if memos %}
   <table class="grid tight">
@@ -149,7 +121,6 @@
 </section>
 
 <form method="post" action="/publish/overview">
-  <input type="hidden" name="level" value="{{ level }}">
   <div class="formbar">
     <label class="byline">발행자
       <input type="text" name="published_by" placeholder="이름" maxlength="50">
@@ -163,7 +134,7 @@
     </label>
     {% endif %}
     <button type="submit" {% if not configured or wiki.error %}disabled{% endif %}>
-      위키 통째로 교체 ({{ level }}단계)
+      위키 통째로 교체
     </button>
     <a class="cancel" href="/publish">취소</a>
   </div>

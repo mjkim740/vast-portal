@@ -77,21 +77,28 @@ def _t(v) -> str:
     return escape(s) if s else NA
 
 
-def _n(v) -> str:
+def trim_number(v) -> str:
     """숫자에서 의미 없는 0 을 떼낸다. 1810.000 → 1810, 1.900 → 1.9
 
-    DB 가 DECIMAL 이라 자릿수를 맞춰 1810.000 처럼 나온다. 위키에서는 읽기만
-    불편하다. 실제로 입력한 소수(89.178)는 그대로 둔다 — 반올림하면 사용자가
-    적어 넣은 값이 사라진다.
+    DB 가 DECIMAL 이라 자릿수를 맞춰 1810.000 처럼 나온다. 읽기만 불편하다.
+    실제로 입력한 소수(89.178)는 그대로 둔다 — 반올림하면 사용자가 적어 넣은
+    값이 사라진다.
+
+    빈 값은 빈 문자열로 돌려준다. 화면 템플릿이 '—' 를, 위키가 '-' 를 쓰므로
+    없는 값 표기는 부르는 쪽이 정한다. 포털 화면에서는 Jinja 필터 num 으로 쓴다.
     """
     if v is None:
-        return NA
+        return ""
     s = str(v).strip()
-    if not s:
-        return NA
     if re.fullmatch(r"-?\d+\.\d+", s):
         s = s.rstrip("0").rstrip(".")
-    return escape(s or "0")
+    return s
+
+
+def _n(v) -> str:
+    """위키용. trim_number 와 같은 규칙이고, 빈 값은 '-' 로 낸다."""
+    s = trim_number(v)
+    return escape(s) if s else NA
 
 
 def _p(v) -> str:
@@ -414,136 +421,105 @@ def page_title(d: dict) -> str:
 #
 # 위키의 '[VAST Data] 고객사 사용현황' 페이지를 포털이 통째로 만든다.
 #
-# 이 페이지는 포털보다 먼저 있었고 손으로 적은 내용이 섞여 있었다. 통째로
-# 덮어쓰기로 정한 이상, 남아야 할 것은 전부 DB 에서 나와야 한다.
-#   - 클러스터 메모는 '비고' 열로 낸다(cluster.remark).
-#   - 고객사 메모는 표 아래 목록으로 낸다(customer.remark). 포털에 아직 클러스터가
-#     없는 고객사는 표에 행이 없어서 비고 열로는 담을 수 없다.
-#   - 목차(Page Tree)는 다시 만들어 넣는다. 재현 가능한 것이라 잃을 게 없다.
+# 열은 포털 목록 화면(_table.html)과 같게 맞춘다.
+#   고객사 · 클러스터 · PSNT · 구성 · 장비 · Release · Usable · 사용률 · DRR · Last update
 #
-# ---------------------------------------------------------------------------
-# LEVEL — 왜 단계가 있는가
+# 처음에는 위키에 원래 있던 표의 열(Logical/License/만료일/IP)을 따랐다. 그러면
+# 같은 데이터를 보는 화면이 둘인데 열이 달라서, 둘을 비교할 때마다 어느 쪽이
+# 맞는지 따져야 했다. 한 쪽에만 있는 열은 '빠진 것' 처럼 보인다.
+#   → 포털이 원본이므로 위키를 포털에 맞춘다. 비교할 필요가 없어진다.
 #
-# 첫 발행이 'API 오류 500' 으로 떨어졌다. Confluence 가 본문을 거부했는데,
-# 500 은 어디가 문제인지 알려주지 않는다. 이 표에는 클러스터별 페이지에서
-# 한 번도 쓰지 않은 요소가 섞여 있었다 — 즉 검증된 적이 없다.
+# 색을 쓸 수 없어 글자로 대신하는 것 두 개
+#   DRR 보장치 미달      포털은 빨간 글씨 → 위키는 '(미달)'
+#   Last update 180일 초과  포털은 빨간 글씨 + 말풍선 → 위키는 '(지연)'
 #
-# 그래서 단계마다 '검증 안 된 것' 을 하나씩만 더 쓴다. 발행 화면에서 단계를
-# 골라 눌러 보면, 어느 단계에서 깨지는지로 원인이 바로 좁혀진다. 재빌드가
-# 필요 없다는 게 핵심이다 — 500 하나로 추측 게임을 하지 않기 위한 장치다.
-#
-#   1  표만            클러스터 페이지에서 이미 통과한 구조만 쓴다
-#   2  + 고객사 링크    표 안의 <a href>
-#   3  + 메모·안내      표 아래 목록(ul/li) 과 info 매크로
-#   4  + 목차           children 매크로 (매개변수 없음)
-#   5  목차를 pagetree 로  원래 쓰려던 매크로. root 생략형
-#
-# 확인된 결과: 1~3 통과, 4(옛 pagetree, root=@self) 실패 → 원인은 그 매개변수.
-#
-# 2~5 가 다 통과하면 이 단계 구분은 의미를 잃는다. 그때 기본값으로 두고
-# 선택 칸만 화면에서 빼면 된다.
-#
-# 처음 시도에서 뺀 것들(원인 후보에서 제외):
-#   data-width 속성        클러스터 표는 data-layout 만 쓴다. 폭은 colgroup 이 정한다
-#   머리글 가운데 정렬      <p style="text-align: center"> — 통과한 적 없는 인라인 스타일
-#   <br /> 로 줄바꿈        한 칸에 여러 줄은 <p> 를 여러 개 쓰는 쪽이 이미 통과했다
+# 표에서 빠진 메모는 표 아래 목록으로 낸다
+#   cluster.remark   클러스터 비고
+#   customer.remark  고객사 메모 — 포털에 클러스터가 없는 고객사도 여기로 나온다
+# 이 페이지는 통째로 덮어쓰기라, 위키에 손으로 적은 내용은 발행 때 사라진다.
+# 남아야 하는 메모가 들어올 자리가 이 두 곳이다.
 
-OVERVIEW_LEVEL_MAX = 5
-
-# 열 이름과 폭(px). 폭 합계를 기존 표와 같은 1800 으로 맞춘다.
-# 기존 표는 License 다음에 머리글이 빈 열이 하나 있었다. 용도를 알 수 없어
-# '만료일' 로 채웠다 — 라이선스 상태만으로는 언제 끝나는지 알 수 없다.
+# 열 이름과 폭(px). 글자가 줄바꿈되지 않을 만큼 넉넉하게 준다.
+# 가장 긴 칸은 '장비' 다 — '6 x SMC-G5, 4 x HPE-G5, 3 x Ceres-v2, 2 x sn3700' 처럼 길어진다.
 OVERVIEW_COLS = [
-    ("고객사",  160), ("Update",   90), ("Cluster", 200), ("PSNT",    120),
-    ("Release", 130), ("Usable",  100), ("Logical", 100), ("DRR",      80),
-    ("License", 100), ("만료일",  110), ("IP",      420), ("비고",    190),
+    ("고객사",      220), ("클러스터",  260), ("PSNT",   180), ("구성",      110),
+    ("장비",        520), ("Release",   200), ("Usable", 130), ("사용률",    110),
+    ("DRR",         140), ("Last update", 180),
 ]
 OVERVIEW_WIDTH = sum(w for _, w in OVERVIEW_COLS)
 
-# IP 칸에 넣을 네트워크 행. 전체 현황은 한 칸뿐이라 접속 기준이 되는 주소를 쓴다.
-# 다른 행을 쓰려면 이 한 줄만 고치면 된다.
-OVERVIEW_IP_LABEL = "VMS mgmt ip"
-
-# 라이선스 상태는 뷰에서 파생된 영문 코드다. 위키는 사람이 읽는 표라 한글로 낸다.
-LICENSE_LABEL = {
-    "ACTIVE": "유효", "EXPIRING": "만료임박", "EXPIRED": "만료",
-    "PENDING": "시작전", "UNKNOWN": "미확인",
-}
-
-_HW_ITEM = re.compile(r"^(?P<name>.+?)\((?P<qty>\d+)\)$")
-
-
-def hw_lines(detail_label: str | None) -> list[str]:
-    """'CL(2), Maverick(3)' → ['2 x CL', '3 x Maverick']
-
-    위키 Cluster 칸이 원래 이 표기였다. DB 는 'Model(수량)' 으로 들고 있고,
-    바꾸는 건 발행할 때만 한다 — 포털 화면은 DB 표기를 그대로 쓴다.
-    모양이 다른 조각은 손대지 않고 그대로 낸다.
-    """
-    out = []
-    for part in (detail_label or "").split(","):
-        part = part.strip()
-        if not part:
-            continue
-        m = _HW_ITEM.match(part)
-        out.append(f"{m.group('qty')} x {m.group('name')}" if m else part)
-    return out
+# 표 전체 폭(px). colgroup 합계와 같게 둔다.
+#
+# 왜 명시하는가
+#   data-layout="full-width" 만 두면 Confluence 가 창 폭에 맞춰 열을 눌러 넣는다.
+#   열이 10 개라 장비·Release 같은 칸이 줄바꿈되어 읽기 어렵다. 창보다 넓게
+#   잡으면 표가 가로로 스크롤된다 — 좁혀 보는 대신 밀어 보는 쪽을 택했다.
+#
+#   None 으로 두면 이 속성을 넣지 않고 창 폭에 맞춘다(예전 동작).
+#   열 폭만 바꾸려면 OVERVIEW_COLS 를 고치면 합계가 따라온다.
+OVERVIEW_TABLE_WIDTH: int | None = OVERVIEW_WIDTH
 
 
-def _customer_cell(c: dict, link: bool) -> str:
-    """고객사 이름. link 가 참이고 그 클러스터 페이지가 발행돼 있으면 링크를 건다.
+def _customer_cell(c: dict) -> str:
+    """고객사 이름. 그 클러스터 페이지가 발행돼 있으면 링크를 건다.
+
+    포털 목록은 행 전체가 클릭되지만 위키 표에는 그런 게 없다. 그래서 이름에
+    링크를 건다 — 현황을 보다가 상세로 넘어가는 길이 필요하다.
 
     ac:link 대신 보통 링크를 쓴다. pageId 로 바로 가는 주소라 페이지 제목이
     바뀌어도 깨지지 않고, 상대 주소라 사이트 호스트를 코드에 박지 않는다.
     """
     name = _t(c.get("customer_name"))
     pid = str(c.get("confluence_page_id") or "").strip()
-    if not link or not pid.isdigit():
+    if not pid.isdigit():
         return f"<p>{name}</p>"
     return f'<p><a href="/wiki/pages/viewpage.action?pageId={pid}">{name}</a></p>'
 
 
-def _overview_row(c: dict, level: int) -> str:
-    # Cluster 칸: 이름 한 줄, 그 아래 장비 구성을 한 줄씩. <br /> 대신 <p> 를
-    # 여러 개 쓴다 — 클러스터 페이지에서 이미 통과한 방식이다.
+def _overview_row(c: dict) -> str:
+    # 클러스터: PROD 가 아니면 상태를 붙인다. 포털 목록도 태그로 표시한다.
     cname = _t(c.get("cluster_name"))
     if (c.get("status") or "PROD") != "PROD":
         cname += f" ({escape(str(c['status']))})"
-    cluster = f"<p>{cname}</p>" + "".join(
-        f"<p>{escape(x)}</p>" for x in hw_lines(c.get("cluster_detail")))
 
-    # Update: 날짜만으로는 오래된 값인지 모른다. 180 일이 넘으면 표시한다.
+    # Last update: 날짜만으로는 오래된 값인지 모른다. 180 일이 넘으면 표시한다.
     upd = c.get("last_update")
     if upd:
         txt = upd.strftime("%y-%m-%d")
         days = c.get("days_since_update")
         if days is not None and days > 180:
             txt += " (지연)"
-        update = f"<p>{escape(txt)}</p>"
+        update = escape(txt)
     else:
-        update = f"<p>{NA}</p>"
+        update = NA
 
     drr = _n(c["drr"]) if c.get("drr") is not None else NA
     if c.get("drr_status") == "BELOW":
         drr += " (미달)"
 
-    end = c.get("license_end")
+    pct = c.get("used_pct")
 
     cells = [
-        _customer_cell(c, link=level >= 2),
-        update,
-        cluster,
+        _customer_cell(c),
+        f"<p>{cname}</p>",
         f"<p>{_t(c.get('psnt'))}</p>",
+        f"<p>{_t(c.get('cluster_size'))}</p>",
+        f"<p>{_t(c.get('cluster_detail'))}</p>",
         f"<p>{_t(c.get('vast_sw_release'))}</p>",
         f"<p>{_n(c['usable_total_tb']) if c.get('usable_total_tb') is not None else NA}</p>",
-        f"<p>{_n(c['logical_total_tb']) if c.get('logical_total_tb') is not None else NA}</p>",
+        f"<p>{(_n(pct) + '%') if pct is not None else NA}</p>",
         f"<p>{escape(drr)}</p>",
-        f"<p>{_t(LICENSE_LABEL.get(c.get('license_status') or ''))}</p>",
-        f"<p>{escape(end.strftime('%Y-%m-%d')) if end else NA}</p>",
-        f"<p>{_t(compact_addresses(c.get('vms_ip') or ''))}</p>",
-        _lines((c.get("remark") or "").splitlines()),
+        f"<p>{update}</p>",
     ]
     return "<tr>" + "".join(f"<td>{x}</td>" for x in cells) + "</tr>"
+
+
+def _memo_list(title: str, items: list[str]) -> str:
+    if not items:
+        return ""
+    return ("<p />"
+            f"<p><strong>{escape(title)}</strong></p>"
+            "<ul>" + "".join(f"<li><p>{x}</p></li>" for x in items) + "</ul>")
 
 
 OVERVIEW_FOOTER = (
@@ -557,67 +533,53 @@ OVERVIEW_FOOTER = (
     "</ac:rich-text-body></ac:structured-macro>"
 )
 
-# 목차 — 두 가지 매크로를 단계로 나눠 둔다.
+# 목차 — children 매크로를 쓴다. 매개변수가 없어 틀릴 여지가 없다.
 #
-# 처음에 쓴 형태가 500 을 냈다. 1~3 단계가 통과하고 4 단계만 실패했으므로
-# 원인은 Page Tree 매크로다. 범인은 root 매개변수로 본다 — 저장 형식에서
-# root 는 링크 타입을 기대하는데 '@self' 를 평문으로 넣었다. 원래 페이지도
-# root 에 페이지 제목을 링크로 담고 있었다.
-#
-#   4 단계  children   하위 페이지 목록. 매개변수가 없어 틀릴 여지가 없다.
-#                      이 페이지의 자식은 클러스터 페이지 한 겹이라, 트리든
-#                      목록이든 화면에 보이는 결과가 같다.
-#   5 단계  pagetree   원래 쓰려던 매크로. root 를 아예 생략한다 —
-#                      생략하면 '이 페이지' 가 기본 뿌리다.
-#
-# 4 가 통과하면 목차는 확보된 것이다. 5 까지 통과하면 원래 의도한 모양이 된다.
-# 5 가 실패하면 4 로 두고 끝낸다 — 보이는 결과가 같으므로 잃는 게 없다.
-
-OVERVIEW_CHILDREN = (
+# 원래 pagetree 를 쓰려 했고 두 번 실패했다.
+#   root="@self" 평문   → API 오류 500. root 는 링크 타입을 기대한다
+#   root 생략          → 500 은 안 나지만 스페이스 전체 트리가 그려진다.
+#                        Cloud 의 기본 뿌리는 '이 페이지' 가 아니라 스페이스 최상단이다
+# 이 페이지의 하위는 클러스터 페이지 한 겹이라, 트리든 목록이든 결과가 같다.
+OVERVIEW_TOC = (
     "<p />"
     "<p><strong>목차</strong></p>"
     '<ac:structured-macro ac:name="children" ac:schema-version="1" />'
 )
 
-OVERVIEW_PAGETREE = (
-    "<p />"
-    "<p><strong>목차</strong></p>"
-    '<ac:structured-macro ac:name="pagetree" ac:schema-version="1">'
-    '<ac:parameter ac:name="startDepth">1</ac:parameter>'
-    "</ac:structured-macro>"
-)
 
+def overview_build(clusters: list[dict], memos: list[dict]) -> str:
+    """전체 현황 페이지 본문.
 
-def overview_build(clusters: list[dict], memos: list[dict], level: int = OVERVIEW_LEVEL_MAX) -> str:
-    """전체 현황 페이지 본문. level 은 위 LEVEL 설명 참고."""
-    level = max(1, min(int(level or OVERVIEW_LEVEL_MAX), OVERVIEW_LEVEL_MAX))
-
+    구성: 표 → 클러스터 비고 → 고객사 메모 → 안내 → 목차
+    """
     cols = "".join(f'<col style="width: {w}px;" />' for _, w in OVERVIEW_COLS)
     head = "".join(f"<th><p><strong>{escape(h)}</strong></p></th>"
                    for h, _ in OVERVIEW_COLS)
-    body = ("".join(_overview_row(c, level) for c in clusters) if clusters else
+    body = ("".join(_overview_row(c) for c in clusters) if clusters else
             "<tr>" + "".join(f"<td><p>{NA}</p></td>" for _ in OVERVIEW_COLS) + "</tr>")
 
-    out = [f'<table data-layout="{TABLE_LAYOUT}">'
-           f"<colgroup>{cols}</colgroup>"
-           f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"]
+    cluster_memos = [
+        f"<strong>{_t(c.get('customer_name'))} / {_t(c.get('cluster_name'))}</strong>"
+        f" &#8212; {_t(c.get('remark'))}"
+        for c in clusters if (c.get("remark") or "").strip()
+    ]
+    customer_memos = [
+        f"<strong>{_t(m.get('name'))}</strong> &#8212; {_t(m.get('remark'))}"
+        for m in memos
+    ]
 
-    if level >= 3:
-        if memos:
-            out.append("<p />")
-            out.append("<p><strong>고객사 메모</strong></p>")
-            out.append("<ul>" + "".join(
-                f"<li><p><strong>{_t(m.get('name'))}</strong> &#8212; {_t(m.get('remark'))}</p></li>"
-                for m in memos) + "</ul>")
-        out.append(OVERVIEW_FOOTER)
+    width_attr = (f' data-width="{OVERVIEW_TABLE_WIDTH}"'
+                  if OVERVIEW_TABLE_WIDTH else "")
 
-    # 목차는 한 번만 넣는다. 5 단계는 4 단계의 매크로를 바꾸는 것이지 더하는 게 아니다.
-    if level >= 5:
-        out.append(OVERVIEW_PAGETREE)
-    elif level >= 4:
-        out.append(OVERVIEW_CHILDREN)
-
-    return "".join(out)
+    return "".join([
+        f'<table data-layout="{TABLE_LAYOUT}"{width_attr}>'
+        f"<colgroup>{cols}</colgroup>"
+        f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>",
+        _memo_list("클러스터 비고", cluster_memos),
+        _memo_list("고객사 메모", customer_memos),
+        OVERVIEW_FOOTER,
+        OVERVIEW_TOC,
+    ])
 
 
 _TBODY = re.compile(r"<tbody[^>]*>(.*?)</tbody>", re.I | re.S)
