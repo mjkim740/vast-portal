@@ -5,8 +5,10 @@ metadata:
 ---
 # MariaDB 서버 설정
 # utf8mb4 는 고객사명이 한글이라 필수.
-# InnoDB 는 vastblock(NVMe-oF) 위에서 O_DIRECT 로 동작 — NFS 였다면
-# flush_method 조정이 필요했겠지만 블록 볼륨이라 기본값으로 충분하다.
+#
+# 아래 innodb_flush_method 주석을 보라 — 이 볼륨은 NFS(csi.vastdata.com)다.
+# 예전 주석에 'vastblock(NVMe-oF) 위에서 O_DIRECT 로 동작' 이라고 적혀 있었는데
+# 실제 설정과 어긋나 있었다. 설정이 맞고 주석이 틀렸던 것이라 주석을 고쳤다.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -105,11 +107,21 @@ spec:
               mountPath: /var/lib/mysql
             - name: config
               mountPath: /etc/mysql/conf.d
-            - name: initdb
-              mountPath: /docker-entrypoint-initdb.d
-          # 최초 기동 시 initContainer 없이 스키마가 적재되도록
-          # /docker-entrypoint-initdb.d 에 schema_v3.sql 을 마운트한다.
-          # 이미 데이터가 있으면 엔트리포인트가 이 디렉터리를 건너뛴다.
+          # /docker-entrypoint-initdb.d 마운트를 제거했다.
+          #
+          # 왜 뺐나
+          #   빈 볼륨으로 처음 뜰 때 ConfigMap(mariadb-initdb)의 schema_v4.sql 이
+          #   적재되게 해뒀다. 그런데 그 스키마가 db/schema.sql + migrations 보다
+          #   낡아서, 2026-10 스토리지 교체 복구 때 사고가 났다.
+          #
+          #   덤프를 복원하려는 DB 에 옛 스키마가 먼저 깔려 있었고, 옛 테이블의
+          #   외래키 제약 이름이 덤프의 것과 겹쳐 CREATE TABLE 이 errno 121
+          #   (Duplicate key on write or update) 로 실패했다. 제약 이름은
+          #   데이터베이스 안에서 전역으로 유일해야 한다.
+          #
+          #   복구 경로는 '빈 DB + 덤프 복원' 이다. 자동으로 깔리는 스키마는
+          #   거기에 도움이 되지 않고 방해가 된다. 새로 구축할 때는
+          #   db/schema.sql 과 db/migrations/*.sql 을 순서대로 적용한다.
           livenessProbe:
             exec:
               command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
@@ -133,9 +145,6 @@ spec:
         - name: config
           configMap:
             name: mariadb-config
-        - name: initdb
-          configMap:
-            name: mariadb-initdb     # schema_v4.sql 을 담은 ConfigMap (최초 기동 시에만 적용)
             optional: true
   volumeClaimTemplates:
     - metadata:
