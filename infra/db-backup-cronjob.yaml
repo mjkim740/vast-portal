@@ -1,0 +1,130 @@
+# vast_portal DB 백업
+#
+# 하루 한 번 논리 백업(mariadb-dump)을 뜨고 두 곳에 남긴다.
+#   /backup      PVC db-backup   보존 7일
+#   /hostbackup  k8s-master01 의 /root/backup/vast-portal/auto   보존 30일
+#
+# 왜 두 곳인가
+#   PVC(db-backup)와 DB(data-mariadb-0)가 같은 StorageClass(vastdata-delete)를
+#   쓴다. 즉 백업이 보호하려는 스토리지에 백업이 들어 있다. 2026-10 스토리지
+#   교체 때 PVC 안의 백업이 전부 사라졌고, 복구를 가능하게 한 것은 사람이 손으로
+#   떠서 호스트에 둔 사본이었다. 그 경로를 자동화에 포함한다.
+#
+#   호스트 복사는 hostPath 라서 '파드가 뜬 노드' 의 디스크를 본다. 그래서
+#   nodeSelector 로 k8s-master01 에 묶는다. 그 노드가 내려가 있으면 백업이
+#   돌지 않는데, 그건 ls 로 바로 보이는 실패다 — 조용히 한 곳만 남는 것보다 낫다.
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+  namespace: vast-portal
+spec:
+  # 한국시간 새벽 3시.
+  #   전에는 "0 18 * * *" 에 timeZone 이 없었다. timeZone 을 비우면 UTC 기준이고
+  #   서버 시계도 UTC 라서, 의도와 무관하게 실제로는 새벽 3시에 돌고 있었다.
+  #   시각은 그대로 두고 의도를 명시한다. timeZone 은 k8s 1.27+ GA.
+  schedule: "0 3 * * *"
+  timeZone: Asia/Seoul
+
+  # 앞 작업이 아직 돌고 있으면 건너뛴다. 둘이 겹치면 같은 임시 파일을 서로
+  # 밟는다. (수동 실행은 CronJob 이 만든 작업이 아니라 이 설정과 무관하다)
+  concurrencyPolicy: Forbid
+
+  # 3 AM 에 클러스터가 내려가 있었다면 한 시간 안에 복구되면 그때 돈다.
+  startingDeadlineSeconds: 3600
+
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          # hostPath 때문에 노드를 고정한다. 노드에 taint 가 없어 toleration 불필요.
+          nodeSelector:
+            kubernetes.io/hostname: k8s-master01
+          containers:
+            - name: dump
+              image: mariadb:11.4
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: MARIADB_PWD
+                  valueFrom:
+                    secretKeyRef:
+                      name: mariadb-secret
+                      key: root-password
+              command:
+                - sh
+                - -c
+                - |
+                  set -e
+
+                  TS=$(date +%Y%m%d-%H%M)
+                  TMP=/backup/.in-progress.sql
+                  OUT=/backup/vast_portal_$TS.sql
+
+                  # 어떻게 끝나든 작업 중 파일은 남기지 않는다. 성공했으면
+                  # 이미 mv 로 옮겨졌으니 지울 것이 없다.
+                  trap 'rm -f "$TMP"' EXIT
+
+                  # 자동 백업은 하위 디렉터리에만 쓴다.
+                  # 호스트의 상위 경로에는 사람이 손으로 떠둔 복구용 파일이
+                  # 있다(final-*.sql 등). 보존 정리가 그걸 건드리면 안 된다.
+                  HOST=/hostbackup/auto
+                  mkdir -p "$HOST"
+                  chmod 700 "$HOST"
+
+                  # MariaDB 11.x 는 mysqldump 가 아니라 mariadb-dump
+                  #
+                  # --default-character-set=utf8mb4
+                  #     이 파드는 mariadb-config ConfigMap 을 마운트하지 않아
+                  #     [client] default-character-set 을 받지 못한다. 한글
+                  #     고객사명이 깨지지 않도록 명시한다. 마이그레이션에서
+                  #     이 옵션이 없어 한글 SQL 이 깨진 적이 있다.
+                  # --databases
+                  #     덤프에 CREATE DATABASE 가 들어가 자기완결적이 된다.
+                  #     복원 명령이 상황마다 달라지지 않는다.
+                  mariadb-dump -h mariadb-0.mariadb.vast-portal.svc \
+                    -uroot -p"$MARIADB_PWD" \
+                    --single-transaction --routines --triggers --events \
+                    --default-character-set=utf8mb4 \
+                    --databases vast_portal > "$TMP"
+
+                  # 끊긴 덤프를 정상 백업으로 남기지 않는다.
+                  #   리다이렉션은 실패해도 파일을 먼저 만든다. set -e 가 작업을
+                  #   중단시켜도 잘린 파일은 남고, 보존 기간이 지나기 전까지
+                  #   '백업이 있다' 고 보인다. 완결 표시를 확인한 뒤에만 제 이름을 준다.
+                  if ! tail -1 "$TMP" | grep -q "Dump completed"; then
+                    echo "FAILED: 덤프가 완결되지 않았습니다 (파일 폐기)"
+                    rm -f "$TMP"
+                    exit 1
+                  fi
+                  mv "$TMP" "$OUT"
+
+                  cp "$OUT" "$HOST/"
+
+                  find /backup -name 'vast_portal_*.sql' -mtime +7  -delete
+                  find "$HOST" -name 'vast_portal_*.sql' -mtime +30 -delete
+
+                  echo "OK: $(basename "$OUT")  $(du -h "$OUT" | cut -f1)"
+                  echo "--- PVC (/backup, 7일) ---"
+                  ls -lh /backup
+                  echo "--- 호스트 ($HOST, 30일) ---"
+                  ls -lh "$HOST"
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+                - name: hostbackup
+                  mountPath: /hostbackup
+          volumes:
+            - name: backup
+              persistentVolumeClaim:
+                claimName: db-backup
+            - name: hostbackup
+              hostPath:
+                # k8s-master01 의 ~/backup/vast-portal
+                path: /root/backup/vast-portal
+                type: DirectoryOrCreate
